@@ -1,0 +1,26 @@
+{
+  "name": "beauty-salon-line-bot",
+  "version": "1.0.0",
+  "description": "LINE Messaging API bot for Beauty Salon using Node.js + Express without database",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "line-bot",
+    "beauty-salon",
+    "express",
+    "webhook",
+    "render"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.7.0",
+    "express": "^4.21.2"
+  }
+}
