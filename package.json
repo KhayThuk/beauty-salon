@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@line/bot-sdk": "^9.7.0",
+    "cloudinary": "^2.5.1",
     "express": "^4.21.2"
   }
 }
