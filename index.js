@@ -25,13 +25,7 @@ if (missing.length > 0) {
   console.warn(`Missing environment variables: ${missing.join(', ')}`);
 }
 
-const client = new line.messagingApi.MessagingApiClient({
-  channelAccessToken: config.channelAccessToken,
-});
-
-const blobClient = new line.messagingApi.MessagingApiBlobClient({
-  channelAccessToken: config.channelAccessToken,
-});
+const client = new line.Client(config);
 
 // In-memory state per userId
 const sessions = new Map();
@@ -101,7 +95,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// serve uploaded files for LINE image push
 app.get('/uploads/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
   const filePath = path.join(UPLOAD_DIR, filename);
@@ -118,7 +111,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
     const results = await Promise.all((req.body.events || []).map(handleEvent));
     res.status(200).json({ ok: true, results });
   } catch (error) {
-    console.error('Webhook error:', error?.body || error);
+    console.error('Webhook error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
     res.status(500).end();
   }
 });
@@ -128,9 +121,7 @@ async function handleEvent(event) {
     console.log('GROUP ID:', event.source.groupId);
   }
 
-  if (event.type !== 'message') {
-    return null;
-  }
+  if (event.type !== 'message') return null;
 
   if (event.message.type === 'text') {
     return handleTextMessage(event);
@@ -184,10 +175,7 @@ async function handleTextMessage(event) {
       if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
         await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
         markConversationClosed(userId);
-        await replyText(
-          replyToken,
-          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
-        );
+        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
         return 'closed_old_case_trigger';
       }
 
@@ -195,27 +183,19 @@ async function handleTextMessage(event) {
         sessions.set(userId, {
           mode: 'reschedule',
           step: 'nameOrPhone',
-          data: {
-            requestType: 'เปลี่ยนวันนัด',
-          },
+          data: { requestType: 'เปลี่ยนวันนัด' },
           closedAt: null,
           lastSeenAt: Date.now(),
         });
 
-        await replyText(
-          replyToken,
-          'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
-        );
+        await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
         return 'closed_restart_reschedule';
       }
 
       if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
         await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
         markConversationClosed(userId);
-        await replyText(
-          replyToken,
-          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ'
-        );
+        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
         return 'closed_contact_admin';
       }
 
@@ -252,10 +232,7 @@ async function handleTextMessage(event) {
     if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
       await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
       markConversationClosed(userId);
-      await replyText(
-        replyToken,
-        'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
-      );
+      await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
       return 'reopen_old_case';
     }
 
@@ -275,17 +252,12 @@ async function handleTextMessage(event) {
       sessions.set(userId, {
         mode: 'reschedule',
         step: 'nameOrPhone',
-        data: {
-          requestType: 'เปลี่ยนวันนัด',
-        },
+        data: { requestType: 'เปลี่ยนวันนัด' },
         closedAt: null,
         lastSeenAt: Date.now(),
       });
 
-      await replyText(
-        replyToken,
-        'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
-      );
+      await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
       return 'reopen_reschedule';
     }
 
@@ -314,20 +286,14 @@ async function handleTextMessage(event) {
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
     markConversationClosed(userId);
-    await replyText(
-      replyToken,
-      'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ'
-    );
+    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ');
     return 'contact_admin';
   }
 
   if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
     markConversationClosed(userId);
-    await replyText(
-      replyToken,
-      'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
-    );
+    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
     return 'old_case';
   }
 
@@ -335,17 +301,12 @@ async function handleTextMessage(event) {
     sessions.set(userId, {
       mode: 'reschedule',
       step: 'nameOrPhone',
-      data: {
-        requestType: 'เปลี่ยนวันนัด',
-      },
+      data: { requestType: 'เปลี่ยนวันนัด' },
       closedAt: null,
       lastSeenAt: Date.now(),
     });
 
-    await replyText(
-      replyToken,
-      'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
-    );
+    await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
     return 'start_reschedule';
   }
 
@@ -470,23 +431,18 @@ async function handleImageMessage(event) {
   session.lastSeenAt = Date.now();
 
   if (session.mode !== 'booking') {
-    await replyText(
-      replyToken,
-      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ'
-    );
+    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ');
     return 'image_outside_booking';
   }
 
   if (!['tattooNeedPhoto', 'tattooChooseDesign', 'samplePhoto'].includes(session.step)) {
-    await replyText(
-      replyToken,
-      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ'
-    );
+    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
     return 'image_unexpected_booking';
   }
 
   try {
     const saved = await saveIncomingImage(event.message.id);
+
     if (!session.data.images) session.data.images = [];
     session.data.images.push(saved);
 
@@ -496,40 +452,31 @@ async function handleImageMessage(event) {
       await replyMessages(replyToken, [
         {
           type: 'text',
-          text:
-            'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถเข้าไปดูลายเพิ่มเติมได้ที่ลิงก์นี้เลยนะคะ\n' +
-            TATTOO_REFERENCE_LINK,
+          text: `ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถเข้าไปดูลายเพิ่มเติมได้ที่ลิงก์นี้เลยนะคะ\n${TATTOO_REFERENCE_LINK}`,
         },
         {
           type: 'text',
-          text:
-            'เช็กลายที่ต้องการได้เลยค่ะ\nหากมีลายที่นำมาเอง สามารถส่งรูปเพิ่มเข้ามาได้เลยนะคะ\nเมื่อพร้อมแล้ว พิมพ์รายละเอียดลาย/ตำแหน่ง/ขนาดที่ต้องการมาได้เลยค่ะ',
+          text: 'เช็กลายที่ต้องการได้เลยค่ะ\nหากมีลายที่นำมาเอง สามารถส่งรูปเพิ่มเข้ามาได้เลยนะคะ\nเมื่อพร้อมแล้ว พิมพ์รายละเอียดลาย/ตำแหน่ง/ขนาดที่ต้องการมาได้เลยค่ะ',
         },
       ]);
       return 'tattoo_first_image_saved';
     }
 
     if (session.step === 'tattooChooseDesign') {
-      await replyText(
-        replyToken,
-        'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ'
-      );
+      await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
       return 'tattoo_extra_image_saved';
     }
 
     if (session.step === 'samplePhoto') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
       session.step = 'preferredStaff';
-      await replyText(
-        replyToken,
-        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ'
-      );
+      await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
       return 'sample_photo_saved';
     }
 
     return 'image_saved';
   } catch (error) {
-    console.error('handleImageMessage error:', error?.body || error);
+    console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
     await replyText(replyToken, 'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ');
     return 'image_save_failed';
   }
@@ -555,36 +502,25 @@ async function handleBookingFlow(event, text, userId) {
         sessions.set(userId, {
           mode: 'reschedule',
           step: 'nameOrPhone',
-          data: {
-            requestType: 'เปลี่ยนวันนัด',
-          },
+          data: { requestType: 'เปลี่ยนวันนัด' },
           closedAt: null,
           lastSeenAt: Date.now(),
         });
-        await replyText(
-          replyToken,
-          'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
-        );
+        await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
         return 'service_to_reschedule';
       }
 
       if (text === 'ติดต่อแอดมิน') {
         await pushToAdminGroup(buildContactAdminSummary(event, text));
         markConversationClosed(userId);
-        await replyText(
-          replyToken,
-          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ'
-        );
+        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
         return 'service_contact_admin';
       }
 
       if (text === 'คุยกับพนักงาน/เช็กคิวเดิม') {
         await pushToAdminGroup(buildOldCaseSummary(event, text));
         markConversationClosed(userId);
-        await replyText(
-          replyToken,
-          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
-        );
+        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
         return 'service_old_case';
       }
 
@@ -597,10 +533,7 @@ async function handleBookingFlow(event, text, userId) {
       if (text === 'สักลาย') {
         session.step = 'tattooNeedPhoto';
         session.data.images = [];
-        await replyText(
-          replyToken,
-          'สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น'
-        );
+        await replyText(replyToken, 'สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น');
         return 'ask_tattoo_first_photo';
       }
 
@@ -610,10 +543,7 @@ async function handleBookingFlow(event, text, userId) {
     }
 
     case 'tattooNeedPhoto':
-      await replyText(
-        replyToken,
-        'รบกวนส่งรูปก่อนนะคะ เพื่อให้ทางร้านดูรายละเอียดเบื้องต้นก่อนค่ะ'
-      );
+      await replyText(replyToken, 'รบกวนส่งรูปก่อนนะคะ เพื่อให้ทางร้านดูรายละเอียดเบื้องต้นก่อนค่ะ');
       return 'tattoo_waiting_image';
 
     case 'tattooChooseDesign':
@@ -625,19 +555,13 @@ async function handleBookingFlow(event, text, userId) {
     case 'style':
       session.data.style = text;
       session.step = 'samplePhoto';
-      await replyText(
-        replyToken,
-        'มีรูปตัวอย่างไหมคะ ถ้ามีสามารถส่งรูปมาได้เลย หรือถ้าไม่มีให้พิมพ์ว่า “ไม่มีค่ะ” ได้เลยค่ะ'
-      );
+      await replyText(replyToken, 'มีรูปตัวอย่างไหมคะ ถ้ามีสามารถส่งรูปมาได้เลย หรือถ้าไม่มีให้พิมพ์ว่า “ไม่มีค่ะ” ได้เลยค่ะ');
       return 'ask_sample_photo';
 
     case 'samplePhoto':
       session.data.samplePhoto = text;
       session.step = 'preferredStaff';
-      await replyText(
-        replyToken,
-        'ต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ'
-      );
+      await replyText(replyToken, 'ต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
       return 'ask_staff';
 
     case 'preferredStaff':
@@ -667,10 +591,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'preferredTime':
       session.data.preferredTime = text;
       session.step = 'additionalDetails';
-      await replyText(
-        replyToken,
-        'มีรายละเอียดเพิ่มเติมไหมคะ เช่น ขนาด จุดที่ต้องการสัก ความยาวผม สีที่อยากได้ ลายเล็บ งบประมาณ หรือข้อมูลอื่น ๆ'
-      );
+      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ เช่น ขนาด จุดที่ต้องการสัก ความยาวผม สีที่อยากได้ ลายเล็บ งบประมาณ หรือข้อมูลอื่น ๆ');
       return 'ask_additional';
 
     case 'additionalDetails': {
@@ -685,10 +606,7 @@ async function handleBookingFlow(event, text, userId) {
 
       markConversationClosed(userId);
 
-      await replyText(
-        replyToken,
-        'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ'
-      );
+      await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
       return 'booking_completed';
     }
 
@@ -710,10 +628,7 @@ async function handlePriceInquiryFlow(event, text, userId) {
       if (!selectedService) {
         await replyMessages(replyToken, [
           buildPriceInquiryMenuMessage(),
-          {
-            type: 'text',
-            text: 'กรุณาเลือกบริการที่ต้องการสอบถามราคาจากเมนูได้เลยค่ะ',
-          },
+          { type: 'text', text: 'กรุณาเลือกบริการที่ต้องการสอบถามราคาจากเมนูได้เลยค่ะ' },
         ]);
         return 'price_choose_invalid';
       }
@@ -770,10 +685,7 @@ async function handleRescheduleFlow(event, text, userId) {
       await pushToAdminGroup(adminSummary);
       markConversationClosed(userId);
 
-      await replyText(
-        replyToken,
-        'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ'
-      );
+      await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
       return 'reschedule_completed';
     }
 
@@ -861,26 +773,19 @@ function normalizePriceService(text) {
   const map = {
     'ราคาตัดผมชาย': 'ตัดผมชาย',
     'ตัดผมชาย': 'ตัดผมชาย',
-
     'ราคาทำเล็บ': 'ทำเล็บ',
     'ทำเล็บ': 'ทำเล็บ',
-
     'ราคาต่อเล็บ': 'ต่อเล็บ',
     'ต่อเล็บ': 'ต่อเล็บ',
-
     'ราคาทำสีผม': 'ทำสีผม',
     'ทำสีผม': 'ทำสีผม',
-
     'ราคาดัดผม': 'ดัดผม',
     'ดัดผม': 'ดัดผม',
-
     'ราคาสระ/ไดร์': 'สระ/ไดร์',
     'สระ/ไดร์': 'สระ/ไดร์',
     'สระไดร์': 'สระ/ไดร์',
-
     'ราคาทรีตเมนต์': 'ทรีตเมนต์',
     'ทรีตเมนต์': 'ทรีตเมนต์',
-
     'ราคาสักลาย': 'สักลาย',
     'สักลาย': 'สักลาย',
   };
@@ -1023,17 +928,9 @@ async function pushToAdminGroup(text) {
   }
 
   try {
-    await client.pushMessage({
-      to: ADMIN_GROUP_ID,
-      messages: [
-        {
-          type: 'text',
-          text,
-        },
-      ],
-    });
+    await client.pushMessage(ADMIN_GROUP_ID, [{ type: 'text', text }]);
   } catch (error) {
-    console.error('pushToAdminGroup error:', error?.body || error);
+    console.error('pushToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
   }
 }
 
@@ -1044,12 +941,9 @@ async function pushMessagesToAdminGroup(messages) {
   }
 
   try {
-    await client.pushMessage({
-      to: ADMIN_GROUP_ID,
-      messages,
-    });
+    await client.pushMessage(ADMIN_GROUP_ID, messages);
   } catch (error) {
-    console.error('pushMessagesToAdminGroup error:', error?.body || error);
+    console.error('pushMessagesToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
   }
 }
 
@@ -1075,12 +969,9 @@ async function replyText(replyToken, text) {
 
 async function replyMessages(replyToken, messages) {
   try {
-    await client.replyMessage({
-      replyToken,
-      messages,
-    });
+    await client.replyMessage(replyToken, messages);
   } catch (error) {
-    console.error('replyMessages error:', error?.body || error);
+    console.error('replyMessages error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
   }
 }
 
@@ -1131,41 +1022,27 @@ function safeValue(value) {
 }
 
 async function saveIncomingImage(messageId) {
-  const response = await blobClient.getMessageContentWithHttpInfo(messageId);
-  const contentType =
-    response?.httpResponse?.headers?.get?.('content-type') ||
-    response?.httpResponse?.headers?.['content-type'] ||
-    'image/jpeg';
-
-  const ext = getExtensionFromContentType(contentType);
-  const filename = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+  const stream = await client.getMessageContent(messageId);
+  const filename = `${Date.now()}-${crypto.randomUUID()}.jpg`;
   const filePath = path.join(UPLOAD_DIR, filename);
 
-  const buffer = await streamToBuffer(response.body);
-  fs.writeFileSync(filePath, buffer);
+  await streamToFile(stream, filePath);
 
   return {
     filename,
     filePath,
     url: `${PUBLIC_BASE_URL}/uploads/${filename}`,
-    contentType,
+    contentType: 'image/jpeg',
   };
 }
 
-function getExtensionFromContentType(contentType = '') {
-  if (contentType.includes('png')) return '.png';
-  if (contentType.includes('gif')) return '.gif';
-  if (contentType.includes('webp')) return '.webp';
-  return '.jpg';
-}
-
-function streamToBuffer(stream) {
+function streamToFile(stream, filePath) {
   return new Promise((resolve, reject) => {
-    const chunks = [];
-
-    stream.on('data', (chunk) => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    const writeStream = fs.createWriteStream(filePath);
+    stream.pipe(writeStream);
     stream.on('error', reject);
+    writeStream.on('finish', resolve);
+    writeStream.on('error', reject);
   });
 }
 
