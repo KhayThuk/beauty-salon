@@ -8,8 +8,17 @@ const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
+app.get('/', (req, res) => {
+  res.status(200).send('LINE bot running');
+});
 
-const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
+app.post('/webhook', line.middleware(config), (req, res) => {
+  res.status(200).end();
+});
+
+app.listen(port, () => {
+  console.log(`Server running on ${port}`);
+});
 
 const missing = [];
 if (!config.channelAccessToken) missing.push('F7C6qrtQAOcjYuWa81lMVd7HCmUnVio40vCIBOuWUFKlgd6VrWBX4zKgShqHqAH+rtPtHPDMoMo8yoKGgDoqOllMwI6zKmYoG47hBS+BNR4eoiF9BtDwmzZvWwTNS/yrgW/3LrW7K5CszX1CTUMXJwdB04t89/1O/w1cDnyilFU=');
