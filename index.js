@@ -8,6 +8,19 @@ const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 };
+
+const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
+
+const missing = [];
+
+if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
+if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
+if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
+
+if (missing.length > 0) {
+  console.warn(`Missing environment variables: ${missing.join(', ')}`);
+}
+
 app.get('/', (req, res) => {
   res.status(200).send('LINE bot running');
 });
@@ -21,8 +34,9 @@ app.listen(port, () => {
 });
 
 const missing = [];
-if (!config.channelAccessToken) missing.push('F7C6qrtQAOcjYuWa81lMVd7HCmUnVio40vCIBOuWUFKlgd6VrWBX4zKgShqHqAH+rtPtHPDMoMo8yoKGgDoqOllMwI6zKmYoG47hBS+BNR4eoiF9BtDwmzZvWwTNS/yrgW/3LrW7K5CszX1CTUMXJwdB04t89/1O/w1cDnyilFU=');
-if (!config.channelSecret) missing.push('7f9b67250a3f25458ea347cd9b5addc1');
+
+if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
+if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
 if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
 
 if (missing.length > 0) {
