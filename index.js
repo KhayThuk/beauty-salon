@@ -39,11 +39,44 @@ const SERVICES = [
   'จองคิว',
   'เปลี่ยนวันนัด',
   'ติดต่อแอดมิน',
+  'จองคิวเพิ่มเติม',
+  'คุยกับพนักงาน/เช็กคิวเดิม',
 ];
 
-const RESTART_KEYWORDS = ['เริ่มใหม่', 'เริ่มต้นใหม่', 'เริ่มใหม่อีกครั้ง', 'start', 'restart'];
+const RESTART_KEYWORDS = ['เริ่มใหม่', 'เริ่มต้นใหม่', 'เริ่มใหม่อีกครั้ง', 'start', 'restart', 'เมนู', 'menu'];
 const RESCHEDULE_KEYWORDS = ['เปลี่ยนวันนัด', 'เลื่อนนัด'];
 const CONTACT_ADMIN_KEYWORDS = ['ติดต่อแอดมิน', 'คุยกับแอดมิน', 'แอดมิน'];
+const OLD_CASE_KEYWORDS = ['คุยกับพนักงาน/เช็กคิวเดิม', 'คุยกับพนักงาน', 'เช็กคิวเดิม', 'คิวเดิม'];
+const EXTRA_BOOKING_KEYWORDS = ['จองคิวเพิ่มเติม', 'จองเพิ่ม', 'จองใหม่'];
+const START_TRIGGER_KEYWORDS = [
+  'เมนู',
+  'menu',
+  'เริ่มใหม่',
+  'เริ่มต้นใหม่',
+  'start',
+  'restart',
+  'จองคิว',
+  'จองคิวเพิ่มเติม',
+  'จองเพิ่ม',
+  'จองใหม่',
+  'สอบถามราคา',
+  'เปลี่ยนวันนัด',
+  'เลื่อนนัด',
+  'ติดต่อแอดมิน',
+  'คุยกับพนักงาน',
+  'คุยกับพนักงาน/เช็กคิวเดิม',
+  'เช็กคิวเดิม',
+  'คิวเดิม',
+  'สวัสดี',
+  'สวัสดีค่ะ',
+  'สวัสดีครับ',
+  'hello',
+  'hi',
+  'หวัดดี',
+];
+
+// 24 ชั่วโมง
+const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 app.get('/', (req, res) => {
   res.status(200).json({
@@ -86,21 +119,159 @@ async function handleTextMessage(event) {
     return null;
   }
 
+  let isFirstMessage = false;
+
   if (!sessions.has(userId)) {
     sessions.set(userId, createDefaultSession());
+    isFirstMessage = true;
   }
 
   const session = sessions.get(userId);
+  session.lastSeenAt = Date.now();
 
+  // ========= กรณีคุยจบแล้ว =========
+  if (session.mode === 'closed') {
+    const passed = Date.now() - (session.closedAt || 0);
+
+    // เกิน 24 ชั่วโมงแล้ว ให้ส่งเมนูเลือกก่อน
+    if (passed >= CLOSED_WINDOW_MS) {
+      sessions.set(userId, createDefaultSession());
+      const freshSession = sessions.get(userId);
+      freshSession.mode = 'reopenMenu';
+      freshSession.step = 'chooseAction';
+
+      await replyMessages(replyToken, [buildReopenMenuMessage()]);
+      return 'reopen_menu_after_24h';
+    }
+
+    // ยังไม่ครบ 24 ชั่วโมง ต้องพิมพ์คำปลุกก่อน
+    if (isStartTrigger(normalized, incomingText)) {
+      sessions.set(userId, createDefaultSession());
+      const freshSession = sessions.get(userId);
+
+      if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
+        await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
+        markConversationClosed(userId);
+        await replyText(
+          replyToken,
+          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
+        );
+        return 'closed_old_case_trigger';
+      }
+
+      if (RESCHEDULE_KEYWORDS.includes(normalized)) {
+        sessions.set(userId, {
+          mode: 'reschedule',
+          step: 'nameOrPhone',
+          data: {
+            requestType: 'เปลี่ยนวันนัด',
+          },
+          closedAt: null,
+          lastSeenAt: Date.now(),
+        });
+
+        await replyText(
+          replyToken,
+          'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
+        );
+        return 'closed_restart_reschedule';
+      }
+
+      if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
+        await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
+        markConversationClosed(userId);
+        await replyText(
+          replyToken,
+          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ'
+        );
+        return 'closed_contact_admin';
+      }
+
+      if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized) || incomingText === 'จองคิว') {
+        freshSession.mode = 'booking';
+        freshSession.step = 'service';
+        freshSession.data = {};
+        await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+        return 'closed_extra_booking';
+      }
+
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      freshSession.mode = 'booking';
+      freshSession.step = 'service';
+      return 'closed_restart_general';
+    }
+
+    return 'closed_ignore';
+  }
+
+  // ========= กรณีเปิดเมนูหลังครบ 24 ชม. =========
+  if (session.mode === 'reopenMenu') {
+    if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
+      await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
+      markConversationClosed(userId);
+      await replyText(
+        replyToken,
+        'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
+      );
+      return 'reopen_old_case';
+    }
+
+    if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+      return 'reopen_extra_booking';
+    }
+
+    if (RESCHEDULE_KEYWORDS.includes(normalized)) {
+      sessions.set(userId, {
+        mode: 'reschedule',
+        step: 'nameOrPhone',
+        data: {
+          requestType: 'เปลี่ยนวันนัด',
+        },
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+
+      await replyText(
+        replyToken,
+        'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ'
+      );
+      return 'reopen_reschedule';
+    }
+
+    if (incomingText === 'สอบถามราคา') {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      return handleBookingFlow(event, 'สอบถามราคา', userId);
+    }
+
+    await replyMessages(replyToken, [buildReopenMenuMessage()]);
+    return 'reopen_menu_repeat';
+  }
+
+  // ========= คำสั่งรีสตาร์ต =========
   if (RESTART_KEYWORDS.includes(normalized)) {
     sessions.set(userId, createDefaultSession());
     await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
     return 'restarted';
   }
 
+  // ========= ติดต่อแอดมิน =========
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
-    clearSession(userId);
+    markConversationClosed(userId);
     await replyText(
       replyToken,
       'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ'
@@ -108,6 +279,18 @@ async function handleTextMessage(event) {
     return 'contact_admin';
   }
 
+  // ========= เช็กคิวเดิม / คุยกับพนักงาน =========
+  if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
+    await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
+    markConversationClosed(userId);
+    await replyText(
+      replyToken,
+      'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
+    );
+    return 'old_case';
+  }
+
+  // ========= เปลี่ยนวันนัด =========
   if (RESCHEDULE_KEYWORDS.includes(normalized)) {
     sessions.set(userId, {
       mode: 'reschedule',
@@ -115,6 +298,8 @@ async function handleTextMessage(event) {
       data: {
         requestType: 'เปลี่ยนวันนัด',
       },
+      closedAt: null,
+      lastSeenAt: Date.now(),
     });
 
     await replyText(
@@ -124,24 +309,59 @@ async function handleTextMessage(event) {
     return 'start_reschedule';
   }
 
-  if (session.mode === 'idle') {
+  // ========= จองเพิ่ม =========
+  if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
     sessions.set(userId, {
       mode: 'booking',
       step: 'service',
       data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
     });
 
-    if (isGreeting(normalized)) {
+    await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+    return 'start_extra_booking';
+  }
+
+  // ========= ทักครั้งแรก =========
+  if (session.mode === 'idle') {
+    // ถ้าทักครั้งแรก ให้ตอบ welcome
+    if (isFirstMessage) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+
+      if (SERVICES.includes(incomingText)) {
+        return handleBookingFlow(event, incomingText, userId);
+      }
+
       await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'welcome';
+      return 'first_welcome';
     }
 
-    if (SERVICES.includes(incomingText)) {
-      return handleBookingFlow(event, incomingText, userId);
+    // ไม่ใช่ครั้งแรก และยัง idle ให้ตอบเฉพาะคำปลุก
+    if (isStartTrigger(normalized, incomingText)) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+
+      if (SERVICES.includes(incomingText)) {
+        return handleBookingFlow(event, incomingText, userId);
+      }
+
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      return 'idle_triggered';
     }
 
-    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'idle_to_welcome';
+    return 'idle_ignore';
   }
 
   if (session.mode === 'booking') {
@@ -153,8 +373,7 @@ async function handleTextMessage(event) {
   }
 
   sessions.set(userId, createDefaultSession());
-  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-  return 'fallback';
+  return 'fallback_reset';
 }
 
 async function handleBookingFlow(event, text, userId) {
@@ -172,6 +391,8 @@ async function handleBookingFlow(event, text, userId) {
           data: {
             requestType: 'เปลี่ยนวันนัด',
           },
+          closedAt: null,
+          lastSeenAt: Date.now(),
         });
         await replyText(
           replyToken,
@@ -182,9 +403,28 @@ async function handleBookingFlow(event, text, userId) {
 
       if (text === 'ติดต่อแอดมิน') {
         await pushToAdminGroup(buildContactAdminSummary(event, text));
-        clearSession(userId);
-        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
+        markConversationClosed(userId);
+        await replyText(
+          replyToken,
+          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ'
+        );
         return 'service_contact_admin';
+      }
+
+      if (text === 'คุยกับพนักงาน/เช็กคิวเดิม') {
+        await pushToAdminGroup(buildOldCaseSummary(event, text));
+        markConversationClosed(userId);
+        await replyText(
+          replyToken,
+          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ'
+        );
+        return 'service_old_case';
+      }
+
+      if (text === 'จองคิว' || text === 'จองคิวเพิ่มเติม') {
+        session.step = 'style';
+        await replyText(replyToken, 'ต้องการจองสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+        return 'service_booking_general';
       }
 
       session.step = 'style';
@@ -247,7 +487,7 @@ async function handleBookingFlow(event, text, userId) {
       session.data.additionalDetails = text;
       const adminSummary = buildSummaryForAdmin(event, session.data);
       await pushToAdminGroup(adminSummary);
-      clearSession(userId);
+      markConversationClosed(userId);
 
       await replyText(
         replyToken,
@@ -284,7 +524,7 @@ async function handleRescheduleFlow(event, text, userId) {
       session.data.newTime = text;
       const adminSummary = buildRescheduleSummary(event, session.data);
       await pushToAdminGroup(adminSummary);
-      clearSession(userId);
+      markConversationClosed(userId);
 
       await replyText(
         replyToken,
@@ -337,6 +577,21 @@ function buildServiceQuestion() {
   };
 }
 
+function buildReopenMenuMessage() {
+  return {
+    type: 'text',
+    text: 'สวัสดีค่ะ ยินดีต้อนรับกลับนะคะ\nหากเป็นเรื่องคิวเดิมหรืออยากคุยกับพนักงาน สามารถเลือก “คุยกับพนักงาน/เช็กคิวเดิม” ได้เลยค่ะ\nหากต้องการจองใหม่หรือจองเพิ่ม เลือก “จองคิวเพิ่มเติม” ได้เลยนะคะ',
+    quickReply: {
+      items: [
+        quickReplyText('คุยกับพนักงาน/เช็กคิวเดิม'),
+        quickReplyText('จองคิวเพิ่มเติม'),
+        quickReplyText('เปลี่ยนวันนัด'),
+        quickReplyText('สอบถามราคา'),
+      ],
+    },
+  };
+}
+
 function buildDetailQuestion(service) {
   const map = {
     'ตัดผมชาย': 'ต้องการทรงหรือสไตล์แบบไหนคะ และต้องการช่างคนไหนเป็นพิเศษไหม',
@@ -348,6 +603,7 @@ function buildDetailQuestion(service) {
     'ทรีตเมนต์': 'ต้องการทรีตเมนต์แบบไหนคะ หรือมีปัญหาเส้นผม/หนังศีรษะที่อยากดูแลเป็นพิเศษไหมคะ',
     'สอบถามราคา': 'สนใจสอบถามราคาบริการไหนคะ กรุณาระบุรายละเอียด เช่น บริการที่ต้องการ ความยาวผม หรือลายเล็บที่ต้องการได้เลยค่ะ',
     'จองคิว': 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
+    'จองคิวเพิ่มเติม': 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
   };
 
   return map[service] || 'รบกวนแจ้งรายละเอียดบริการที่ต้องการได้เลยค่ะ';
@@ -389,6 +645,16 @@ function buildContactAdminSummary(event, originalText) {
   const source = event.source || {};
   return [
     '📌 มีลูกค้าต้องการติดต่อแอดมิน',
+    `ข้อความจากลูกค้า: ${safeValue(originalText)}`,
+    `LINE userId: ${safeValue(source.userId)}`,
+    `source type: ${safeValue(source.type)}`,
+  ].join('\n');
+}
+
+function buildOldCaseSummary(event, originalText) {
+  const source = event.source || {};
+  return [
+    '📌 มีลูกค้าต้องการคุยกับพนักงาน / เช็กคิวเดิม',
     `ข้อความจากลูกค้า: ${safeValue(originalText)}`,
     `LINE userId: ${safeValue(source.userId)}`,
     `source type: ${safeValue(source.type)}`,
@@ -446,9 +712,8 @@ function normalizeText(text) {
   return text.trim().toLowerCase();
 }
 
-function isGreeting(text) {
-  const greetings = ['สวัสดี', 'สวัสดีค่ะ', 'สวัสดีครับ', 'hello', 'hi', 'หวัดดี'];
-  return greetings.includes(text);
+function isStartTrigger(normalized, rawText) {
+  return START_TRIGGER_KEYWORDS.includes(normalized) || START_TRIGGER_KEYWORDS.includes(rawText);
 }
 
 function createDefaultSession() {
@@ -456,11 +721,19 @@ function createDefaultSession() {
     mode: 'idle',
     step: 'service',
     data: {},
+    closedAt: null,
+    lastSeenAt: Date.now(),
   };
 }
 
-function clearSession(userId) {
-  sessions.set(userId, createDefaultSession());
+function markConversationClosed(userId) {
+  sessions.set(userId, {
+    mode: 'closed',
+    step: 'done',
+    data: {},
+    closedAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
 }
 
 function safeValue(value) {
