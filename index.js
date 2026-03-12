@@ -743,7 +743,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'preferredTime':
       session.data.preferredTime = text;
       session.step = 'additionalDetails';
-      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ เช่น ขนาด จุดที่ต้องการสัก ความยาวผม สีที่อยากได้ ลายเล็บ งบประมาณ หรือข้อมูลอื่น ๆ');
+      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ หากมมีสามารถพิมพ์เเจ้งตอนนี้ได้เลยนะคะ');
       return 'ask_additional';
 
     case 'additionalDetails': {
@@ -857,7 +857,7 @@ async function handleRescheduleFlow(event, text, userId) {
 function buildWelcomeMessage() {
   return {
     type: 'text',
-    text: 'สวัสดีค่ะ ยินดีต้อนรับสู่ร้าน Beauty Salon ✨\nทางร้านยินดีให้ข้อมูลเรื่องบริการ ราคา การจองคิว และการเปลี่ยนวันนัดค่ะ',
+    text: 'สวัสดีค่ะ ยินดีต้อนรับสู่ร้าน เรือนไทย Beauty Salon ✨\nทางร้านยินดีให้ข้อมูลเรื่องบริการ ราคา การจองคิว และการเปลี่ยนวันนัดค่ะ',
     quickReply: {
       items: [
         quickReplyText('จองคิว'),
@@ -1084,7 +1084,7 @@ function buildLocationMessage() {
         contents: [
           {
             type: 'text',
-            text: '📍 พิกัดร้าน Beauty Salon',
+            text: '📍 พิกัดร้าน เรือนไทย Beauty Salon',
             weight: 'bold',
             size: 'xl',
             color: '#4E4326',
