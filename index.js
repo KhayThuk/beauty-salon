@@ -75,7 +75,6 @@ const START_TRIGGER_KEYWORDS = [
   'หวัดดี',
 ];
 
-// 24 ชั่วโมง
 const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 app.get('/', (req, res) => {
@@ -129,11 +128,9 @@ async function handleTextMessage(event) {
   const session = sessions.get(userId);
   session.lastSeenAt = Date.now();
 
-  // ========= กรณีคุยจบแล้ว =========
   if (session.mode === 'closed') {
     const passed = Date.now() - (session.closedAt || 0);
 
-    // เกิน 24 ชั่วโมงแล้ว ให้ส่งเมนูเลือกก่อน
     if (passed >= CLOSED_WINDOW_MS) {
       sessions.set(userId, createDefaultSession());
       const freshSession = sessions.get(userId);
@@ -144,7 +141,6 @@ async function handleTextMessage(event) {
       return 'reopen_menu_after_24h';
     }
 
-    // ยังไม่ครบ 24 ชั่วโมง ต้องพิมพ์คำปลุกก่อน
     if (isStartTrigger(normalized, incomingText)) {
       sessions.set(userId, createDefaultSession());
       const freshSession = sessions.get(userId);
@@ -187,12 +183,24 @@ async function handleTextMessage(event) {
         return 'closed_contact_admin';
       }
 
-      if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized) || incomingText === 'จองคิว') {
+      if (
+        EXTRA_BOOKING_KEYWORDS.includes(incomingText) ||
+        EXTRA_BOOKING_KEYWORDS.includes(normalized) ||
+        incomingText === 'จองคิว'
+      ) {
         freshSession.mode = 'booking';
         freshSession.step = 'service';
         freshSession.data = {};
         await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
         return 'closed_extra_booking';
+      }
+
+      if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+        freshSession.mode = 'priceInquiry';
+        freshSession.step = 'choosePriceService';
+        freshSession.data = {};
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'closed_price_inquiry';
       }
 
       await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
@@ -204,7 +212,6 @@ async function handleTextMessage(event) {
     return 'closed_ignore';
   }
 
-  // ========= กรณีเปิดเมนูหลังครบ 24 ชม. =========
   if (session.mode === 'reopenMenu') {
     if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
       await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
@@ -248,27 +255,26 @@ async function handleTextMessage(event) {
 
     if (incomingText === 'สอบถามราคา') {
       sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
+        mode: 'priceInquiry',
+        step: 'choosePriceService',
         data: {},
         closedAt: null,
         lastSeenAt: Date.now(),
       });
-      return handleBookingFlow(event, 'สอบถามราคา', userId);
+      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+      return 'reopen_price_inquiry';
     }
 
     await replyMessages(replyToken, [buildReopenMenuMessage()]);
     return 'reopen_menu_repeat';
   }
 
-  // ========= คำสั่งรีสตาร์ต =========
   if (RESTART_KEYWORDS.includes(normalized)) {
     sessions.set(userId, createDefaultSession());
     await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
     return 'restarted';
   }
 
-  // ========= ติดต่อแอดมิน =========
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
     markConversationClosed(userId);
@@ -279,7 +285,6 @@ async function handleTextMessage(event) {
     return 'contact_admin';
   }
 
-  // ========= เช็กคิวเดิม / คุยกับพนักงาน =========
   if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
     markConversationClosed(userId);
@@ -290,7 +295,6 @@ async function handleTextMessage(event) {
     return 'old_case';
   }
 
-  // ========= เปลี่ยนวันนัด =========
   if (RESCHEDULE_KEYWORDS.includes(normalized)) {
     sessions.set(userId, {
       mode: 'reschedule',
@@ -309,7 +313,6 @@ async function handleTextMessage(event) {
     return 'start_reschedule';
   }
 
-  // ========= จองเพิ่ม =========
   if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
     sessions.set(userId, {
       mode: 'booking',
@@ -323,9 +326,20 @@ async function handleTextMessage(event) {
     return 'start_extra_booking';
   }
 
-  // ========= ทักครั้งแรก =========
+  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'start_price_inquiry';
+  }
+
   if (session.mode === 'idle') {
-    // ถ้าทักครั้งแรก ให้ตอบ welcome
     if (isFirstMessage) {
       sessions.set(userId, {
         mode: 'booking',
@@ -335,15 +349,26 @@ async function handleTextMessage(event) {
         lastSeenAt: Date.now(),
       });
 
-      if (SERVICES.includes(incomingText)) {
+      if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
         return handleBookingFlow(event, incomingText, userId);
+      }
+
+      if (incomingText === 'สอบถามราคา') {
+        sessions.set(userId, {
+          mode: 'priceInquiry',
+          step: 'choosePriceService',
+          data: {},
+          closedAt: null,
+          lastSeenAt: Date.now(),
+        });
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'first_price_inquiry';
       }
 
       await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
       return 'first_welcome';
     }
 
-    // ไม่ใช่ครั้งแรก และยัง idle ให้ตอบเฉพาะคำปลุก
     if (isStartTrigger(normalized, incomingText)) {
       sessions.set(userId, {
         mode: 'booking',
@@ -352,6 +377,18 @@ async function handleTextMessage(event) {
         closedAt: null,
         lastSeenAt: Date.now(),
       });
+
+      if (incomingText === 'สอบถามราคา') {
+        sessions.set(userId, {
+          mode: 'priceInquiry',
+          step: 'choosePriceService',
+          data: {},
+          closedAt: null,
+          lastSeenAt: Date.now(),
+        });
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'idle_price_triggered';
+      }
 
       if (SERVICES.includes(incomingText)) {
         return handleBookingFlow(event, incomingText, userId);
@@ -366,6 +403,10 @@ async function handleTextMessage(event) {
 
   if (session.mode === 'booking') {
     return handleBookingFlow(event, incomingText, userId);
+  }
+
+  if (session.mode === 'priceInquiry') {
+    return handlePriceInquiryFlow(event, incomingText, userId);
   }
 
   if (session.mode === 'reschedule') {
@@ -383,6 +424,14 @@ async function handleBookingFlow(event, text, userId) {
   switch (session.step) {
     case 'service': {
       session.data.service = text;
+
+      if (text === 'สอบถามราคา') {
+        session.mode = 'priceInquiry';
+        session.step = 'choosePriceService';
+        session.data = {};
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'service_to_price_inquiry';
+      }
 
       if (text === 'เปลี่ยนวันนัด') {
         sessions.set(userId, {
@@ -503,6 +552,54 @@ async function handleBookingFlow(event, text, userId) {
   }
 }
 
+async function handlePriceInquiryFlow(event, text, userId) {
+  const session = sessions.get(userId);
+  const replyToken = event.replyToken;
+
+  switch (session.step) {
+    case 'choosePriceService': {
+      const selectedService = normalizePriceService(text);
+
+      if (!selectedService) {
+        await replyMessages(replyToken, [
+          buildPriceInquiryMenuMessage(),
+          {
+            type: 'text',
+            text: 'กรุณาเลือกบริการที่ต้องการสอบถามราคาจากเมนูได้เลยค่ะ',
+          },
+        ]);
+        return 'price_choose_invalid';
+      }
+
+      session.data.priceService = selectedService;
+
+      await replyMessages(replyToken, [
+        buildPriceResponseMessage(selectedService),
+        {
+          type: 'text',
+          text: 'หากต้องการจองคิวหรือสอบถามเพิ่มเติม สามารถเลือกเมนูด้านล่างได้เลยค่ะ',
+          quickReply: {
+            items: [
+              quickReplyText('จองคิว'),
+              quickReplyText('สอบถามราคา'),
+              quickReplyText('ติดต่อแอดมิน'),
+              quickReplyText('เมนู'),
+            ],
+          },
+        },
+      ]);
+
+      markConversationClosed(userId);
+      return 'price_completed';
+    }
+
+    default:
+      sessions.set(userId, createDefaultSession());
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      return 'price_reset';
+  }
+}
+
 async function handleRescheduleFlow(event, text, userId) {
   const session = sessions.get(userId);
   const replyToken = event.replyToken;
@@ -592,6 +689,105 @@ function buildReopenMenuMessage() {
   };
 }
 
+function buildPriceInquiryMenuMessage() {
+  return {
+    type: 'text',
+    text: 'ต้องการสอบถามราคาบริการไหนคะ กรุณาเลือกจากเมนูด้านล่างได้เลยค่ะ',
+    quickReply: {
+      items: [
+        quickReplyText('ราคาตัดผมชาย'),
+        quickReplyText('ราคาทำเล็บ'),
+        quickReplyText('ราคาต่อเล็บ'),
+        quickReplyText('ราคาทำสีผม'),
+        quickReplyText('ราคาดัดผม'),
+        quickReplyText('ราคาสระ/ไดร์'),
+        quickReplyText('ราคาทรีตเมนต์'),
+      ],
+    },
+  };
+}
+
+function normalizePriceService(text) {
+  const value = normalizeText(text);
+
+  const map = {
+    'ราคาตัดผมชาย': 'ตัดผมชาย',
+    'ตัดผมชาย': 'ตัดผมชาย',
+
+    'ราคาทำเล็บ': 'ทำเล็บ',
+    'ทำเล็บ': 'ทำเล็บ',
+
+    'ราคาต่อเล็บ': 'ต่อเล็บ',
+    'ต่อเล็บ': 'ต่อเล็บ',
+
+    'ราคาทำสีผม': 'ทำสีผม',
+    'ทำสีผม': 'ทำสีผม',
+
+    'ราคาดัดผม': 'ดัดผม',
+    'ดัดผม': 'ดัดผม',
+
+    'ราคาสระ/ไดร์': 'สระ/ไดร์',
+    'สระ/ไดร์': 'สระ/ไดร์',
+    'สระไดร์': 'สระ/ไดร์',
+
+    'ราคาทรีตเมนต์': 'ทรีตเมนต์',
+    'ทรีตเมนต์': 'ทรีตเมนต์',
+  };
+
+  return map[value] || null;
+}
+
+function getSamplePriceData(service) {
+  const priceMap = {
+    'ตัดผมชาย': {
+      price: 'เริ่มต้น 250 บาท',
+      details: 'ตัด + ซอย + เซ็ตทรง',
+    },
+    'ทำเล็บ': {
+      price: 'เริ่มต้น 300 บาท',
+      details: 'ขึ้นอยู่กับแบบและสีที่เลือก',
+    },
+    'ต่อเล็บ': {
+      price: 'เริ่มต้น 799 บาท',
+      details: 'ขึ้นอยู่กับความยาว ทรง และลายที่ต้องการ',
+    },
+    'ทำสีผม': {
+      price: 'เริ่มต้น 1,290 บาท',
+      details: 'ขึ้นอยู่กับความยาวผม สีเดิม และสีที่ต้องการ',
+    },
+    'ดัดผม': {
+      price: 'เริ่มต้น 1,590 บาท',
+      details: 'ขึ้นอยู่กับความยาวผมและรูปแบบลอน',
+    },
+    'สระ/ไดร์': {
+      price: 'เริ่มต้น 199 บาท',
+      details: 'ไดร์ตรง / ไดร์ลอน ราคาต่างกันเล็กน้อย',
+    },
+    'ทรีตเมนต์': {
+      price: 'เริ่มต้น 490 บาท',
+      details: 'ขึ้นอยู่กับสูตรที่เลือกและสภาพเส้นผม',
+    },
+  };
+
+  return priceMap[service] || {
+    price: 'กรุณาสอบถามเพิ่มเติม',
+    details: 'รายละเอียดราคาอาจเปลี่ยนแปลงตามบริการ',
+  };
+}
+
+function buildPriceResponseMessage(service) {
+  const priceData = getSamplePriceData(service);
+
+  return {
+    type: 'text',
+    text:
+      `💬 ราคาบริการ ${service}\n` +
+      `ราคา: ${priceData.price}\n` +
+      `รายละเอียด: ${priceData.details}\n\n` +
+      `หมายเหตุ: ราคานี้เป็นราคาเบื้องต้นนะคะ ราคาอาจเปลี่ยนได้ตามความยาวผม แบบที่ต้องการ หรือรายละเอียดหน้างานค่ะ`,
+  };
+}
+
 function buildDetailQuestion(service) {
   const map = {
     'ตัดผมชาย': 'ต้องการทรงหรือสไตล์แบบไหนคะ และต้องการช่างคนไหนเป็นพิเศษไหม',
@@ -601,7 +797,6 @@ function buildDetailQuestion(service) {
     'ดัดผม': 'ต้องการดัดผมแบบไหนคะ เช่น ลอนคลาย ลอนแน่น และผมยาวประมาณไหนคะ',
     'สระ/ไดร์': 'ต้องการสระ/ไดร์แบบไหนคะ เช่น ไดร์ตรง ไดร์ลอน หรือมีโอกาสพิเศษไหมคะ',
     'ทรีตเมนต์': 'ต้องการทรีตเมนต์แบบไหนคะ หรือมีปัญหาเส้นผม/หนังศีรษะที่อยากดูแลเป็นพิเศษไหมคะ',
-    'สอบถามราคา': 'สนใจสอบถามราคาบริการไหนคะ กรุณาระบุรายละเอียด เช่น บริการที่ต้องการ ความยาวผม หรือลายเล็บที่ต้องการได้เลยค่ะ',
     'จองคิว': 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
     'จองคิวเพิ่มเติม': 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
   };
