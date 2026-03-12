@@ -5,8 +5,8 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken: 'F7C6qrtQAOcjYuWa81lMVd7HCmUnVio40vCIBOuWUFKlgd6VrWBX4zKgShqHqAH+rtPtHPDMoMo8yoKGgDoqOllMwI6zKmYoG47hBS+BNR4eoiF9BtDwmzZvWwTNS/yrgW/3LrW7K5CszX1CTUMXJwdB04t89/1O/w1cDnyilFU=',
+  channelSecret: '7f9b67250a3f25458ea347cd9b5addc1',
 };
 
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
