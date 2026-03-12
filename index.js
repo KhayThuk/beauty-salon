@@ -1,5 +1,8 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -10,11 +13,13 @@ const config = {
 };
 
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
+const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
 
 const missing = [];
 if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
 if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
 if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
+if (!PUBLIC_BASE_URL) missing.push('PUBLIC_BASE_URL');
 
 if (missing.length > 0) {
   console.warn(`Missing environment variables: ${missing.join(', ')}`);
@@ -24,8 +29,17 @@ const client = new line.messagingApi.MessagingApiClient({
   channelAccessToken: config.channelAccessToken,
 });
 
+const blobClient = new line.messagingApi.MessagingApiBlobClient({
+  channelAccessToken: config.channelAccessToken,
+});
+
 // In-memory state per userId
 const sessions = new Map();
+
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
 
 const SERVICES = [
   'ตัดผมชาย',
@@ -35,6 +49,7 @@ const SERVICES = [
   'ดัดผม',
   'สระ/ไดร์',
   'ทรีตเมนต์',
+  'สักลาย',
   'สอบถามราคา',
   'จองคิว',
   'เปลี่ยนวันนัด',
@@ -76,6 +91,7 @@ const START_TRIGGER_KEYWORDS = [
 ];
 
 const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
+const TATTOO_REFERENCE_LINK = 'https://linevoom.line.me/post/1177332387036083141';
 
 app.get('/', (req, res) => {
   res.status(200).json({
@@ -83,6 +99,18 @@ app.get('/', (req, res) => {
     service: 'beauty-salon-line-bot',
     message: 'LINE webhook is running',
   });
+});
+
+// serve uploaded files for LINE image push
+app.get('/uploads/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const filePath = path.join(UPLOAD_DIR, filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send('File not found');
+  }
+
+  res.sendFile(filePath);
 });
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
@@ -100,11 +128,19 @@ async function handleEvent(event) {
     console.log('GROUP ID:', event.source.groupId);
   }
 
-  if (event.type !== 'message' || event.message.type !== 'text') {
+  if (event.type !== 'message') {
     return null;
   }
 
-  return handleTextMessage(event);
+  if (event.message.type === 'text') {
+    return handleTextMessage(event);
+  }
+
+  if (event.message.type === 'image') {
+    return handleImageMessage(event);
+  }
+
+  return null;
 }
 
 async function handleTextMessage(event) {
@@ -417,6 +453,88 @@ async function handleTextMessage(event) {
   return 'fallback_reset';
 }
 
+async function handleImageMessage(event) {
+  const userId = event.source.userId;
+  const replyToken = event.replyToken;
+
+  if (!userId) {
+    await replyText(replyToken, 'ขออภัยค่ะ ระบบไม่สามารถระบุผู้ใช้งานได้ในขณะนี้');
+    return null;
+  }
+
+  if (!sessions.has(userId)) {
+    sessions.set(userId, createDefaultSession());
+  }
+
+  const session = sessions.get(userId);
+  session.lastSeenAt = Date.now();
+
+  if (session.mode !== 'booking') {
+    await replyText(
+      replyToken,
+      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ'
+    );
+    return 'image_outside_booking';
+  }
+
+  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'samplePhoto'].includes(session.step)) {
+    await replyText(
+      replyToken,
+      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ'
+    );
+    return 'image_unexpected_booking';
+  }
+
+  try {
+    const saved = await saveIncomingImage(event.message.id);
+    if (!session.data.images) session.data.images = [];
+    session.data.images.push(saved);
+
+    if (session.step === 'tattooNeedPhoto') {
+      session.step = 'tattooChooseDesign';
+
+      await replyMessages(replyToken, [
+        {
+          type: 'text',
+          text:
+            'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถเข้าไปดูลายเพิ่มเติมได้ที่ลิงก์นี้เลยนะคะ\n' +
+            TATTOO_REFERENCE_LINK,
+        },
+        {
+          type: 'text',
+          text:
+            'เช็กลายที่ต้องการได้เลยค่ะ\nหากมีลายที่นำมาเอง สามารถส่งรูปเพิ่มเข้ามาได้เลยนะคะ\nเมื่อพร้อมแล้ว พิมพ์รายละเอียดลาย/ตำแหน่ง/ขนาดที่ต้องการมาได้เลยค่ะ',
+        },
+      ]);
+      return 'tattoo_first_image_saved';
+    }
+
+    if (session.step === 'tattooChooseDesign') {
+      await replyText(
+        replyToken,
+        'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ'
+      );
+      return 'tattoo_extra_image_saved';
+    }
+
+    if (session.step === 'samplePhoto') {
+      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+      session.step = 'preferredStaff';
+      await replyText(
+        replyToken,
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ'
+      );
+      return 'sample_photo_saved';
+    }
+
+    return 'image_saved';
+  } catch (error) {
+    console.error('handleImageMessage error:', error?.body || error);
+    await replyText(replyToken, 'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ');
+    return 'image_save_failed';
+  }
+}
+
 async function handleBookingFlow(event, text, userId) {
   const session = sessions.get(userId);
   const replyToken = event.replyToken;
@@ -476,17 +594,40 @@ async function handleBookingFlow(event, text, userId) {
         return 'service_booking_general';
       }
 
+      if (text === 'สักลาย') {
+        session.step = 'tattooNeedPhoto';
+        session.data.images = [];
+        await replyText(
+          replyToken,
+          'สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น'
+        );
+        return 'ask_tattoo_first_photo';
+      }
+
       session.step = 'style';
       await replyText(replyToken, buildDetailQuestion(text));
       return 'ask_style';
     }
+
+    case 'tattooNeedPhoto':
+      await replyText(
+        replyToken,
+        'รบกวนส่งรูปก่อนนะคะ เพื่อให้ทางร้านดูรายละเอียดเบื้องต้นก่อนค่ะ'
+      );
+      return 'tattoo_waiting_image';
+
+    case 'tattooChooseDesign':
+      session.data.style = text;
+      session.step = 'name';
+      await replyText(replyToken, 'ขอทราบชื่อสำหรับการจองหน่อยค่ะ');
+      return 'tattoo_style_to_name';
 
     case 'style':
       session.data.style = text;
       session.step = 'samplePhoto';
       await replyText(
         replyToken,
-        'มีรูปตัวอย่างไหมคะ ถ้ามีสามารถพิมพ์บอกได้เลย เช่น “มีค่ะ จะส่งให้ภายหลัง” หรือ “ไม่มีค่ะ”'
+        'มีรูปตัวอย่างไหมคะ ถ้ามีสามารถส่งรูปมาได้เลย หรือถ้าไม่มีให้พิมพ์ว่า “ไม่มีค่ะ” ได้เลยค่ะ'
       );
       return 'ask_sample_photo';
 
@@ -528,14 +669,20 @@ async function handleBookingFlow(event, text, userId) {
       session.step = 'additionalDetails';
       await replyText(
         replyToken,
-        'มีรายละเอียดเพิ่มเติมไหมคะ เช่น ความยาวผม สีที่อยากได้ ลายเล็บ งบประมาณ หรือข้อมูลอื่น ๆ'
+        'มีรายละเอียดเพิ่มเติมไหมคะ เช่น ขนาด จุดที่ต้องการสัก ความยาวผม สีที่อยากได้ ลายเล็บ งบประมาณ หรือข้อมูลอื่น ๆ'
       );
       return 'ask_additional';
 
     case 'additionalDetails': {
       session.data.additionalDetails = text;
       const adminSummary = buildSummaryForAdmin(event, session.data);
+
       await pushToAdminGroup(adminSummary);
+
+      if (session.data.images && session.data.images.length > 0) {
+        await pushImagesToAdminGroup(session.data.images);
+      }
+
       markConversationClosed(userId);
 
       await replyText(
@@ -665,8 +812,8 @@ function buildServiceQuestion() {
         quickReplyText('ดัดผม'),
         quickReplyText('สระ/ไดร์'),
         quickReplyText('ทรีตเมนต์'),
+        quickReplyText('สักลาย'),
         quickReplyText('สอบถามราคา'),
-        quickReplyText('จองคิว'),
         quickReplyText('เปลี่ยนวันนัด'),
         quickReplyText('ติดต่อแอดมิน'),
       ],
@@ -702,6 +849,7 @@ function buildPriceInquiryMenuMessage() {
         quickReplyText('ราคาดัดผม'),
         quickReplyText('ราคาสระ/ไดร์'),
         quickReplyText('ราคาทรีตเมนต์'),
+        quickReplyText('ราคาสักลาย'),
       ],
     },
   };
@@ -732,6 +880,9 @@ function normalizePriceService(text) {
 
     'ราคาทรีตเมนต์': 'ทรีตเมนต์',
     'ทรีตเมนต์': 'ทรีตเมนต์',
+
+    'ราคาสักลาย': 'สักลาย',
+    'สักลาย': 'สักลาย',
   };
 
   return map[value] || null;
@@ -767,6 +918,10 @@ function getSamplePriceData(service) {
       price: 'เริ่มต้น 490 บาท',
       details: 'ขึ้นอยู่กับสูตรที่เลือกและสภาพเส้นผม',
     },
+    'สักลาย': {
+      price: 'เริ่มต้น 999 บาท',
+      details: 'ขึ้นอยู่กับขนาด ตำแหน่ง และความละเอียดของลาย',
+    },
   };
 
   return priceMap[service] || {
@@ -784,7 +939,7 @@ function buildPriceResponseMessage(service) {
       `💬 ราคาบริการ ${service}\n` +
       `ราคา: ${priceData.price}\n` +
       `รายละเอียด: ${priceData.details}\n\n` +
-      `หมายเหตุ: ราคานี้เป็นราคาเบื้องต้นนะคะ ราคาอาจเปลี่ยนได้ตามความยาวผม แบบที่ต้องการ หรือรายละเอียดหน้างานค่ะ`,
+      `หมายเหตุ: ราคานี้เป็นราคาเบื้องต้นนะคะ ราคาอาจเปลี่ยนได้ตามรายละเอียดหน้างานค่ะ`,
   };
 }
 
@@ -797,6 +952,7 @@ function buildDetailQuestion(service) {
     'ดัดผม': 'ต้องการดัดผมแบบไหนคะ เช่น ลอนคลาย ลอนแน่น และผมยาวประมาณไหนคะ',
     'สระ/ไดร์': 'ต้องการสระ/ไดร์แบบไหนคะ เช่น ไดร์ตรง ไดร์ลอน หรือมีโอกาสพิเศษไหมคะ',
     'ทรีตเมนต์': 'ต้องการทรีตเมนต์แบบไหนคะ หรือมีปัญหาเส้นผม/หนังศีรษะที่อยากดูแลเป็นพิเศษไหมคะ',
+    'สักลาย': 'รบกวนส่งรูปมาก่อนได้เลยค่ะ',
     'จองคิว': 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
     'จองคิวเพิ่มเติม': 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ',
   };
@@ -806,6 +962,8 @@ function buildDetailQuestion(service) {
 
 function buildSummaryForAdmin(event, data) {
   const source = event.source || {};
+  const imageLinks = (data.images || []).map((img, index) => `รูปที่ ${index + 1}: ${img.url}`).join('\n');
+
   return [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
     'ประเภทคำขอ: จอง/สอบถามบริการ',
@@ -818,6 +976,8 @@ function buildSummaryForAdmin(event, data) {
     `วันที่สะดวก: ${safeValue(data.preferredDate)}`,
     `เวลาที่สะดวก: ${safeValue(data.preferredTime)}`,
     `รายละเอียดเพิ่มเติม: ${safeValue(data.additionalDetails)}`,
+    `จำนวนรูปที่แนบ: ${(data.images || []).length}`,
+    imageLinks || 'ลิงก์รูป: -',
     `LINE userId: ${safeValue(source.userId)}`,
     `source type: ${safeValue(source.type)}`,
   ].join('\n');
@@ -874,6 +1034,38 @@ async function pushToAdminGroup(text) {
     });
   } catch (error) {
     console.error('pushToAdminGroup error:', error?.body || error);
+  }
+}
+
+async function pushMessagesToAdminGroup(messages) {
+  if (!ADMIN_GROUP_ID) {
+    console.warn('ADMIN_GROUP_ID is missing. Skip push messages to admin group.');
+    return;
+  }
+
+  try {
+    await client.pushMessage({
+      to: ADMIN_GROUP_ID,
+      messages,
+    });
+  } catch (error) {
+    console.error('pushMessagesToAdminGroup error:', error?.body || error);
+  }
+}
+
+async function pushImagesToAdminGroup(images = []) {
+  if (!images.length) return;
+
+  for (const img of images) {
+    if (!img?.url) continue;
+
+    await pushMessagesToAdminGroup([
+      {
+        type: 'image',
+        originalContentUrl: img.url,
+        previewImageUrl: img.url,
+      },
+    ]);
   }
 }
 
@@ -936,6 +1128,45 @@ function safeValue(value) {
     return '-';
   }
   return String(value);
+}
+
+async function saveIncomingImage(messageId) {
+  const response = await blobClient.getMessageContentWithHttpInfo(messageId);
+  const contentType =
+    response?.httpResponse?.headers?.get?.('content-type') ||
+    response?.httpResponse?.headers?.['content-type'] ||
+    'image/jpeg';
+
+  const ext = getExtensionFromContentType(contentType);
+  const filename = `${Date.now()}-${crypto.randomUUID()}${ext}`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+
+  const buffer = await streamToBuffer(response.body);
+  fs.writeFileSync(filePath, buffer);
+
+  return {
+    filename,
+    filePath,
+    url: `${PUBLIC_BASE_URL}/uploads/${filename}`,
+    contentType,
+  };
+}
+
+function getExtensionFromContentType(contentType = '') {
+  if (contentType.includes('png')) return '.png';
+  if (contentType.includes('gif')) return '.gif';
+  if (contentType.includes('webp')) return '.webp';
+  return '.jpg';
+}
+
+function streamToBuffer(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
 }
 
 app.listen(port, () => {
