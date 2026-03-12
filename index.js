@@ -792,8 +792,8 @@ async function handlePriceInquiryFlow(event, text, userId) {
             items: [
               quickReplyText('จองคิวบริการนี้'),
               quickReplyText('สอบถามราคา'),
+              quickReplyText('พิกัดร้าน'),
               quickReplyText('ติดต่อแอดมิน'),
-        quickReplyText('พิกัดร้าน'),
               quickReplyText('เมนู'),
             ],
           },
@@ -1065,6 +1065,134 @@ function buildPriceResponseMessage(service) {
       `ราคา: ${priceData.price}\n` +
       `รายละเอียด: ${priceData.details}\n\n` +
       `หมายเหตุ: ราคานี้เป็นราคาเบื้องต้นนะคะ ราคาอาจเปลี่ยนได้ตามรายละเอียดหน้างานค่ะ`,
+  };
+}
+
+
+function buildLocationMessage() {
+  return {
+    type: 'flex',
+    altText: 'พิกัดร้าน Beauty Salon',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      hero: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '20px',
+        backgroundColor: '#D8C99A',
+        contents: [
+          {
+            type: 'text',
+            text: '📍 พิกัดร้าน Beauty Salon',
+            weight: 'bold',
+            size: 'xl',
+            color: '#4E4326',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: 'เปิดให้บริการทุกวัน',
+            margin: 'md',
+            size: 'sm',
+            color: '#6B5E3B',
+          },
+          {
+            type: 'text',
+            text: '09.00 น. - 19.00 น.',
+            margin: 'sm',
+            weight: 'bold',
+            size: 'lg',
+            color: '#4E4326',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          {
+            type: 'box',
+            layout: 'baseline',
+            spacing: 'sm',
+            contents: [
+              {
+                type: 'text',
+                text: '🕘',
+                flex: 0,
+                size: 'md',
+              },
+              {
+                type: 'text',
+                text: 'เปิด 9.00 น. - 19.00 น.',
+                wrap: true,
+                color: '#4E4326',
+                size: 'md',
+              },
+            ],
+          },
+          {
+            type: 'box',
+            layout: 'baseline',
+            spacing: 'sm',
+            contents: [
+              {
+                type: 'text',
+                text: 'ℹ️',
+                flex: 0,
+                size: 'md',
+              },
+              {
+                type: 'text',
+                text: '(หากวันหยุดแอดมินจะแจ้งให้ทราบ)',
+                wrap: true,
+                color: '#6B5E3B',
+                size: 'sm',
+              },
+            ],
+          },
+          {
+            type: 'separator',
+            margin: 'md',
+          },
+          {
+            type: 'text',
+            text: 'กดปุ่มด้านล่างเพื่อเปิดแผนที่ได้เลยค่ะ',
+            wrap: true,
+            color: '#4E4326',
+            size: 'sm',
+            margin: 'md',
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#8B6B3F',
+            height: 'sm',
+            action: {
+              type: 'uri',
+              label: 'เปิดแผนที่ร้าน',
+              uri: 'https://maps.app.goo.gl/MkTzWooXkZwXPfwf8',
+            },
+          },
+        ],
+      },
+      styles: {
+        body: {
+          backgroundColor: '#F8F1D7',
+        },
+        footer: {
+          backgroundColor: '#F8F1D7',
+        },
+      },
+    },
   };
 }
 
