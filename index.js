@@ -278,10 +278,17 @@ async function handleTextMessage(event) {
   }
 
   if (RESTART_KEYWORDS.includes(normalized)) {
-    sessions.set(userId, createDefaultSession());
-    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'restarted';
-  }
+  sessions.set(userId, {
+    mode: 'booking',
+    step: 'service',
+    data: {},
+    closedAt: null,
+    lastSeenAt: Date.now(),
+  });
+
+  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+  return 'restarted';
+}
 
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
@@ -336,67 +343,85 @@ async function handleTextMessage(event) {
     return 'start_price_inquiry';
   }
 
-  if (session.mode === 'idle') {
-    if (isFirstMessage) {
+if (session.mode === 'idle') {
+  if (isFirstMessage) {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+
+    if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+      return handleBookingFlow(event, incomingText, userId);
+    }
+
+    if (incomingText === 'สอบถามราคา') {
       sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
+        mode: 'priceInquiry',
+        step: 'choosePriceService',
         data: {},
         closedAt: null,
         lastSeenAt: Date.now(),
       });
-
-      if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-        return handleBookingFlow(event, incomingText, userId);
-      }
-
-      if (incomingText === 'สอบถามราคา') {
-        sessions.set(userId, {
-          mode: 'priceInquiry',
-          step: 'choosePriceService',
-          data: {},
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-        return 'first_price_inquiry';
-      }
-
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'first_welcome';
+      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+      return 'first_price_inquiry';
     }
 
-    if (isStartTrigger(normalized, incomingText)) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-
-      if (incomingText === 'สอบถามราคา') {
-        sessions.set(userId, {
-          mode: 'priceInquiry',
-          step: 'choosePriceService',
-          data: {},
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-        return 'idle_price_triggered';
-      }
-
-      if (SERVICES.includes(incomingText)) {
-        return handleBookingFlow(event, incomingText, userId);
-      }
-
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'idle_triggered';
-    }
-
-    return 'idle_ignore';
+    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+    return 'first_welcome';
   }
+
+  // ถ้าลูกค้าพิมพ์ชื่อบริการมาเลยตอนอยู่ idle ให้เข้าระบบจองทันที
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    return handleBookingFlow(event, incomingText, userId);
+  }
+
+  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'idle_price_triggered';
+  }
+
+  if (isStartTrigger(normalized, incomingText)) {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+
+    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+    return 'idle_triggered';
+  }
+
+  // ถ้าพิมพ์ข้อความอื่นมา ให้โชว์เมนูใหม่ ไม่ปล่อยเงียบ
+  sessions.set(userId, {
+    mode: 'booking',
+    step: 'service',
+    data: {},
+    closedAt: null,
+    lastSeenAt: Date.now(),
+  });
+
+  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+  return 'idle_fallback_to_menu';
+}
 
   if (session.mode === 'booking') {
     return handleBookingFlow(event, incomingText, userId);
