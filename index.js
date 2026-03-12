@@ -92,6 +92,7 @@ app.get('/', (req, res) => {
     ok: true,
     service: 'beauty-salon-line-bot',
     message: 'LINE webhook is running',
+    publicBaseUrl: PUBLIC_BASE_URL || '(not set)',
   });
 });
 
@@ -219,9 +220,9 @@ async function handleTextMessage(event) {
         return 'closed_price_inquiry';
       }
 
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
       freshSession.mode = 'booking';
       freshSession.step = 'service';
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
       return 'closed_restart_general';
     }
 
@@ -273,22 +274,29 @@ async function handleTextMessage(event) {
       return 'reopen_price_inquiry';
     }
 
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
     await replyMessages(replyToken, [buildReopenMenuMessage()]);
     return 'reopen_menu_repeat';
   }
 
   if (RESTART_KEYWORDS.includes(normalized)) {
-  sessions.set(userId, {
-    mode: 'booking',
-    step: 'service',
-    data: {},
-    closedAt: null,
-    lastSeenAt: Date.now(),
-  });
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
 
-  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-  return 'restarted';
-}
+    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+    return 'restarted';
+  }
 
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
     await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
@@ -343,21 +351,48 @@ async function handleTextMessage(event) {
     return 'start_price_inquiry';
   }
 
-if (session.mode === 'idle') {
-  if (isFirstMessage) {
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
+  if (session.mode === 'idle') {
+    if (isFirstMessage) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+
+      if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+        return handleBookingFlow(event, incomingText, userId);
+      }
+
+      if (incomingText === 'สอบถามราคา') {
+        sessions.set(userId, {
+          mode: 'priceInquiry',
+          step: 'choosePriceService',
+          data: {},
+          closedAt: null,
+          lastSeenAt: Date.now(),
+        });
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'first_price_inquiry';
+      }
+
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      return 'first_welcome';
+    }
 
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
       return handleBookingFlow(event, incomingText, userId);
     }
 
-    if (incomingText === 'สอบถามราคา') {
+    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'priceInquiry',
         step: 'choosePriceService',
@@ -366,38 +401,22 @@ if (session.mode === 'idle') {
         lastSeenAt: Date.now(),
       });
       await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-      return 'first_price_inquiry';
+      return 'idle_price_triggered';
     }
 
-    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'first_welcome';
-  }
+    if (isStartTrigger(normalized, incomingText)) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
 
-  // ถ้าลูกค้าพิมพ์ชื่อบริการมาเลยตอนอยู่ idle ให้เข้าระบบจองทันที
-  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-    return handleBookingFlow(event, incomingText, userId);
-  }
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      return 'idle_triggered';
+    }
 
-  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'priceInquiry',
-      step: 'choosePriceService',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-    return 'idle_price_triggered';
-  }
-
-  if (isStartTrigger(normalized, incomingText)) {
     sessions.set(userId, {
       mode: 'booking',
       step: 'service',
@@ -407,21 +426,8 @@ if (session.mode === 'idle') {
     });
 
     await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'idle_triggered';
+    return 'idle_fallback_to_menu';
   }
-
-  // ถ้าพิมพ์ข้อความอื่นมา ให้โชว์เมนูใหม่ ไม่ปล่อยเงียบ
-  sessions.set(userId, {
-    mode: 'booking',
-    step: 'service',
-    data: {},
-    closedAt: null,
-    lastSeenAt: Date.now(),
-  });
-
-  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-  return 'idle_fallback_to_menu';
-}
 
   if (session.mode === 'booking') {
     return handleBookingFlow(event, incomingText, userId);
@@ -474,6 +480,16 @@ async function handleImageMessage(event) {
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
 
+      // ส่งรูปเข้ากลุ่มแอดมินทันทีเมื่อได้รับรูปครั้งแรก
+      await pushToAdminGroup(
+        [
+          '📌 ลูกค้าส่งรูปสำหรับบริการสักลาย',
+          `LINE userId: ${safeValue(userId)}`,
+          `ลิงก์รูป: ${safeValue(saved.url)}`,
+        ].join('\n')
+      );
+      await pushImagesToAdminGroup([saved]);
+
       await replyMessages(replyToken, [
         {
           type: 'text',
@@ -488,12 +504,31 @@ async function handleImageMessage(event) {
     }
 
     if (session.step === 'tattooChooseDesign') {
+      await pushToAdminGroup(
+        [
+          '📌 ลูกค้าส่งรูปเพิ่มเติมสำหรับบริการสักลาย',
+          `LINE userId: ${safeValue(userId)}`,
+          `ลิงก์รูป: ${safeValue(saved.url)}`,
+        ].join('\n')
+      );
+      await pushImagesToAdminGroup([saved]);
+
       await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
       return 'tattoo_extra_image_saved';
     }
 
     if (session.step === 'samplePhoto') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+
+      await pushToAdminGroup(
+        [
+          '📌 ลูกค้าส่งรูปตัวอย่างประกอบการจอง',
+          `LINE userId: ${safeValue(userId)}`,
+          `ลิงก์รูป: ${safeValue(saved.url)}`,
+        ].join('\n')
+      );
+      await pushImagesToAdminGroup([saved]);
+
       session.step = 'preferredStaff';
       await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
       return 'sample_photo_saved';
