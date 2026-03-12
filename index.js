@@ -1,6 +1,7 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { v2: cloudinary } = require('cloudinary');
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -28,18 +29,15 @@ if (missing.length > 0) {
 }
 
 const client = new line.Client(config);
+
 cloudinary.config({
   cloud_name: CLOUDINARY_CLOUD_NAME,
   api_key: CLOUDINARY_API_KEY,
   api_secret: CLOUDINARY_API_SECRET,
 });
+
 // In-memory state per userId
 const sessions = new Map();
-
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
 
 const SERVICES = [
   'ตัดผมชาย',
@@ -98,40 +96,6 @@ app.get('/', (req, res) => {
     ok: true,
     service: 'beauty-salon-line-bot',
     message: 'LINE webhook is running',
-    publicBaseUrl: PUBLIC_BASE_URL || '(not set)',
-  });
-});
-
-app.get('/uploads/:filename', (req, res) => {
-  const filename = path.basename(req.params.filename);
-  const filePath = path.join(UPLOAD_DIR, filename);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send('File not found');
-  }
-
-  const ext = path.extname(filename).toLowerCase();
-
-  if (ext === '.png') {
-    res.type('png');
-  } else if (ext === '.gif') {
-    res.type('gif');
-  } else if (ext === '.webp') {
-    res.type('webp');
-  } else {
-    res.type('jpeg');
-  }
-
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.setHeader('Content-Disposition', 'inline');
-
-  res.sendFile(filePath, (err) => {
-    if (err) {
-      console.error('sendFile error:', err);
-      if (!res.headersSent) {
-        res.status(500).send('Error serving file');
-      }
-    }
   });
 });
 
@@ -654,16 +618,16 @@ async function handleBookingFlow(event, text, userId) {
       return 'ask_additional';
 
     case 'additionalDetails': {
-  session.data.additionalDetails = text;
-  const adminSummary = buildSummaryForAdmin(event, session.data);
+      session.data.additionalDetails = text;
+      const adminSummary = buildSummaryForAdmin(event, session.data);
 
-  await pushToAdminGroup(adminSummary);
+      await pushToAdminGroup(adminSummary);
 
-  markConversationClosed(userId);
+      markConversationClosed(userId);
 
-  await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
-  return 'booking_completed';
-}
+      await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
+      return 'booking_completed';
+    }
 
     default:
       sessions.set(userId, createDefaultSession());
@@ -990,35 +954,6 @@ async function pushToAdminGroup(text) {
   } catch (error) {
     console.error('pushToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
   }
-}
-
-async function pushMessagesToAdminGroup(messages) {
-  if (!ADMIN_GROUP_ID) {
-    console.warn('ADMIN_GROUP_ID is missing. Skip push messages to admin group.');
-    return;
-  }
-
-  try {
-    console.log('Push to admin group:', JSON.stringify(messages, null, 2));
-    await client.pushMessage(ADMIN_GROUP_ID, messages);
-  } catch (error) {
-    console.error('pushMessagesToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
-    throw error;
-  }
-}
-
-async function pushImagesToAdminGroup(images = []) {
-  if (!images.length) return;
-
-  const lines = ['📷 ลิงก์รูปที่ลูกค้าส่ง'];
-
-  images.forEach((img, index) => {
-    if (img?.url) {
-      lines.push(`รูปที่ ${index + 1}: ${img.url}`);
-    }
-  });
-
-  await pushToAdminGroup(lines.join('\n'));
 }
 
 async function replyText(replyToken, text) {
