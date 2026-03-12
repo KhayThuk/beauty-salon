@@ -1,9 +1,6 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-
+const { v2: cloudinary } = require('cloudinary');
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -13,20 +10,29 @@ const config = {
 };
 
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
-const PUBLIC_BASE_URL = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 const missing = [];
 if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
 if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
 if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
-if (!PUBLIC_BASE_URL) missing.push('PUBLIC_BASE_URL');
+if (!CLOUDINARY_CLOUD_NAME) missing.push('CLOUDINARY_CLOUD_NAME');
+if (!CLOUDINARY_API_KEY) missing.push('CLOUDINARY_API_KEY');
+if (!CLOUDINARY_API_SECRET) missing.push('CLOUDINARY_API_SECRET');
 
 if (missing.length > 0) {
   console.warn(`Missing environment variables: ${missing.join(', ')}`);
 }
 
 const client = new line.Client(config);
-
+cloudinary.config({
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: CLOUDINARY_API_KEY,
+  api_secret: CLOUDINARY_API_SECRET,
+});
 // In-memory state per userId
 const sessions = new Map();
 
@@ -502,16 +508,6 @@ async function handleImageMessage(event) {
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
 
-      // ส่งรูปเข้ากลุ่มแอดมินทันทีเมื่อได้รับรูปครั้งแรก
-      await pushToAdminGroup(
-        [
-          '📌 ลูกค้าส่งรูปสำหรับบริการสักลาย',
-          `LINE userId: ${safeValue(userId)}`,
-          `ลิงก์รูป: ${safeValue(saved.url)}`,
-        ].join('\n')
-      );
-      await pushImagesToAdminGroup([saved]);
-
       await replyMessages(replyToken, [
         {
           type: 'text',
@@ -526,31 +522,12 @@ async function handleImageMessage(event) {
     }
 
     if (session.step === 'tattooChooseDesign') {
-      await pushToAdminGroup(
-        [
-          '📌 ลูกค้าส่งรูปเพิ่มเติมสำหรับบริการสักลาย',
-          `LINE userId: ${safeValue(userId)}`,
-          `ลิงก์รูป: ${safeValue(saved.url)}`,
-        ].join('\n')
-      );
-      await pushImagesToAdminGroup([saved]);
-
       await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
       return 'tattoo_extra_image_saved';
     }
 
     if (session.step === 'samplePhoto') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-
-      await pushToAdminGroup(
-        [
-          '📌 ลูกค้าส่งรูปตัวอย่างประกอบการจอง',
-          `LINE userId: ${safeValue(userId)}`,
-          `ลิงก์รูป: ${safeValue(saved.url)}`,
-        ].join('\n')
-      );
-      await pushImagesToAdminGroup([saved]);
-
       session.step = 'preferredStaff';
       await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
       return 'sample_photo_saved';
@@ -677,20 +654,16 @@ async function handleBookingFlow(event, text, userId) {
       return 'ask_additional';
 
     case 'additionalDetails': {
-      session.data.additionalDetails = text;
-      const adminSummary = buildSummaryForAdmin(event, session.data);
+  session.data.additionalDetails = text;
+  const adminSummary = buildSummaryForAdmin(event, session.data);
 
-      await pushToAdminGroup(adminSummary);
+  await pushToAdminGroup(adminSummary);
 
-      if (session.data.images && session.data.images.length > 0) {
-        await pushImagesToAdminGroup(session.data.images);
-      }
+  markConversationClosed(userId);
 
-      markConversationClosed(userId);
-
-      await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
-      return 'booking_completed';
-    }
+  await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
+  return 'booking_completed';
+}
 
     default:
       sessions.set(userId, createDefaultSession());
@@ -949,6 +922,10 @@ function buildDetailQuestion(service) {
 
 function buildSummaryForAdmin(event, data) {
   const source = event.source || {};
+  const images = data.images || [];
+  const imageLines = images.length
+    ? images.map((img, index) => `รูปที่ ${index + 1}: ${img.url}`).join('\n')
+    : '-';
 
   return [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
@@ -962,7 +939,8 @@ function buildSummaryForAdmin(event, data) {
     `วันที่สะดวก: ${safeValue(data.preferredDate)}`,
     `เวลาที่สะดวก: ${safeValue(data.preferredTime)}`,
     `รายละเอียดเพิ่มเติม: ${safeValue(data.additionalDetails)}`,
-    `จำนวนรูปที่แนบ: ${(data.images || []).length}`,
+    `จำนวนรูปที่แนบ: ${images.length}`,
+    `ลิงก์รูป:\n${imageLines}`,
     `LINE userId: ${safeValue(source.userId)}`,
     `source type: ${safeValue(source.type)}`,
   ].join('\n');
@@ -1103,30 +1081,41 @@ function safeValue(value) {
 
 async function saveIncomingImage(messageId) {
   const stream = await client.getMessageContent(messageId);
-  const filename = `${Date.now()}-${crypto.randomUUID()}.jpg`;
-  const filePath = path.join(UPLOAD_DIR, filename);
 
-  await streamToFile(stream, filePath);
+  const buffer = await streamToBuffer(stream);
 
-  const publicUrl = `${PUBLIC_BASE_URL}/uploads/${filename}`;
+  const uploaded = await new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'beauty-salon-line',
+        resource_type: 'image',
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
 
-  console.log('Saved image:', publicUrl);
+    uploadStream.end(buffer);
+  });
+
+  console.log('Uploaded image to Cloudinary:', uploaded.secure_url);
 
   return {
-    filename,
-    filePath,
-    url: publicUrl,
+    filename: uploaded.public_id,
+    filePath: '-',
+    url: uploaded.secure_url,
     contentType: 'image/jpeg',
   };
 }
 
-function streamToFile(stream, filePath) {
+function streamToBuffer(stream) {
   return new Promise((resolve, reject) => {
-    const writeStream = fs.createWriteStream(filePath);
-    stream.pipe(writeStream);
+    const chunks = [];
+
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
     stream.on('error', reject);
-    writeStream.on('finish', resolve);
-    writeStream.on('error', reject);
   });
 }
 
