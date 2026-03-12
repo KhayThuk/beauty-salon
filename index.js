@@ -104,7 +104,29 @@ app.get('/uploads/:filename', (req, res) => {
     return res.status(404).send('File not found');
   }
 
-  res.sendFile(filePath);
+  const ext = path.extname(filename).toLowerCase();
+
+  if (ext === '.png') {
+    res.type('png');
+  } else if (ext === '.gif') {
+    res.type('gif');
+  } else if (ext === '.webp') {
+    res.type('webp');
+  } else {
+    res.type('jpeg');
+  }
+
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Content-Disposition', 'inline');
+
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      console.error('sendFile error:', err);
+      if (!res.headersSent) {
+        res.status(500).send('Error serving file');
+      }
+    }
+  });
 });
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
@@ -1001,9 +1023,11 @@ async function pushMessagesToAdminGroup(messages) {
   }
 
   try {
+    console.log('Push to admin group:', JSON.stringify(messages, null, 2));
     await client.pushMessage(ADMIN_GROUP_ID, messages);
   } catch (error) {
     console.error('pushMessagesToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
+    throw error;
   }
 }
 
@@ -1013,13 +1037,19 @@ async function pushImagesToAdminGroup(images = []) {
   for (const img of images) {
     if (!img?.url) continue;
 
-    await pushMessagesToAdminGroup([
-      {
-        type: 'image',
-        originalContentUrl: img.url,
-        previewImageUrl: img.url,
-      },
-    ]);
+    try {
+      await pushMessagesToAdminGroup([
+        {
+          type: 'image',
+          originalContentUrl: img.url,
+          previewImageUrl: img.url,
+        },
+      ]);
+    } catch (error) {
+      console.error('push image failed:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
+
+      await pushToAdminGroup(`เปิดรูปไม่ได้อัตโนมัติ ลิงก์รูป: ${img.url}`);
+    }
   }
 }
 
@@ -1088,10 +1118,14 @@ async function saveIncomingImage(messageId) {
 
   await streamToFile(stream, filePath);
 
+  const publicUrl = `${PUBLIC_BASE_URL}/uploads/${filename}`;
+
+  console.log('Saved image:', publicUrl);
+
   return {
     filename,
     filePath,
-    url: `${PUBLIC_BASE_URL}/uploads/${filename}`,
+    url: publicUrl,
     contentType: 'image/jpeg',
   };
 }
