@@ -11,16 +11,20 @@ const config = {
 
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
 
-if (!config.channelAccessToken || !config.channelSecret || !ADMIN_GROUP_ID) {
-  console.warn('Missing required environment variables: LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, ADMIN_GROUP_ID');
+const missing = [];
+if (!config.channelAccessToken) missing.push('F7C6qrtQAOcjYuWa81lMVd7HCmUnVio40vCIBOuWUFKlgd6VrWBX4zKgShqHqAH+rtPtHPDMoMo8yoKGgDoqOllMwI6zKmYoG47hBS+BNR4eoiF9BtDwmzZvWwTNS/yrgW/3LrW7K5CszX1CTUMXJwdB04t89/1O/w1cDnyilFU=');
+if (!config.channelSecret) missing.push('7f9b67250a3f25458ea347cd9b5addc1');
+if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
+
+if (missing.length > 0) {
+  console.warn(`Missing environment variables: ${missing.join(', ')}`);
 }
 
 const client = new line.messagingApi.MessagingApiClient({
   channelAccessToken: config.channelAccessToken,
 });
 
-// In-memory state per userId.
-// Restart แล้วข้อมูลหายได้ตาม requirement.
+// In-memory state per userId
 const sessions = new Map();
 
 const SERVICES = [
@@ -60,6 +64,10 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
 });
 
 async function handleEvent(event) {
+  if (event.source?.type === 'group' && event.source?.groupId) {
+    console.log('GROUP ID:', event.source.groupId);
+  }
+
   if (event.type !== 'message' || event.message.type !== 'text') {
     return null;
   }
@@ -175,10 +183,7 @@ async function handleBookingFlow(event, text, userId) {
       if (text === 'ติดต่อแอดมิน') {
         await pushToAdminGroup(buildContactAdminSummary(event, text));
         clearSession(userId);
-        await replyText(
-          replyToken,
-          'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ'
-        );
+        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
         return 'service_contact_admin';
       }
 
@@ -220,19 +225,13 @@ async function handleBookingFlow(event, text, userId) {
     case 'phone':
       session.data.phone = text;
       session.step = 'preferredDate';
-      await replyText(
-        replyToken,
-        'สะดวกวันไหนคะ สามารถพิมพ์เป็นวันที่หรือช่วงวันที่ที่สะดวกได้เลยค่ะ'
-      );
+      await replyText(replyToken, 'สะดวกวันไหนคะ สามารถพิมพ์เป็นวันที่หรือช่วงวันที่ที่สะดวกได้เลยค่ะ');
       return 'ask_preferred_date';
 
     case 'preferredDate':
       session.data.preferredDate = text;
       session.step = 'preferredTime';
-      await replyText(
-        replyToken,
-        'สะดวกช่วงเวลาไหนคะ เช่น 10:00 น. / ช่วงบ่าย / หลังเลิกงาน'
-      );
+      await replyText(replyToken, 'สะดวกช่วงเวลาไหนคะ เช่น 10:00 น. / ช่วงบ่าย / หลังเลิกงาน');
       return 'ask_preferred_time';
 
     case 'preferredTime':
@@ -358,7 +357,7 @@ function buildSummaryForAdmin(event, data) {
   const source = event.source || {};
   return [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
-    `ประเภทคำขอ: จอง/สอบถามบริการ`,
+    'ประเภทคำขอ: จอง/สอบถามบริการ',
     `บริการ: ${safeValue(data.service)}`,
     `แบบ/รายละเอียดที่ต้องการ: ${safeValue(data.style)}`,
     `มีรูปตัวอย่างไหม: ${safeValue(data.samplePhoto)}`,
@@ -377,7 +376,7 @@ function buildRescheduleSummary(event, data) {
   const source = event.source || {};
   return [
     '📌 มีคำขอเปลี่ยนวันนัดจากลูกค้า',
-    `ประเภทคำขอ: เปลี่ยนวันนัด`,
+    'ประเภทคำขอ: เปลี่ยนวันนัด',
     `ชื่อหรือเบอร์โทรที่ใช้จอง: ${safeValue(data.nameOrPhone)}`,
     `วันที่ใหม่: ${safeValue(data.newDate)}`,
     `เวลาที่สะดวก: ${safeValue(data.newTime)}`,
@@ -397,6 +396,11 @@ function buildContactAdminSummary(event, originalText) {
 }
 
 async function pushToAdminGroup(text) {
+  if (!ADMIN_GROUP_ID) {
+    console.warn('ADMIN_GROUP_ID is missing. Skip push to admin group.');
+    return;
+  }
+
   try {
     await client.pushMessage({
       to: ADMIN_GROUP_ID,
