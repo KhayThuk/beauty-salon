@@ -52,6 +52,9 @@ const SERVICES = [
   'จองคิว',
   'เปลี่ยนวันนัด',
   'ติดต่อแอดมิน',
+  'พิกัดร้าน',
+  'พิกัด',
+  'แผนที่',
   'จองคิวเพิ่มเติม',
   'คุยกับพนักงาน/เช็กคิวเดิม',
 ];
@@ -59,6 +62,7 @@ const SERVICES = [
 const RESTART_KEYWORDS = ['เริ่มใหม่', 'เริ่มต้นใหม่', 'เริ่มใหม่อีกครั้ง', 'start', 'restart', 'เมนู', 'menu'];
 const RESCHEDULE_KEYWORDS = ['เปลี่ยนวันนัด', 'เลื่อนนัด'];
 const CONTACT_ADMIN_KEYWORDS = ['ติดต่อแอดมิน', 'คุยกับแอดมิน', 'แอดมิน'];
+const LOCATION_KEYWORDS = ['พิกัดร้าน', 'พิกัด', 'แผนที่', 'โลเคชั่น', 'location', 'map'];
 const OLD_CASE_KEYWORDS = ['คุยกับพนักงาน/เช็กคิวเดิม', 'คุยกับพนักงาน', 'เช็กคิวเดิม', 'คิวเดิม'];
 const EXTRA_BOOKING_KEYWORDS = ['จองคิวเพิ่มเติม', 'จองเพิ่ม', 'จองใหม่'];
 const POST_PRICE_BOOKING_KEYWORDS = ['จองคิว', 'จองคิวบริการนี้', 'จองบริการนี้', 'เอารายการนี้', 'ต้องการจอง'];
@@ -78,6 +82,9 @@ const START_TRIGGER_KEYWORDS = [
   'เปลี่ยนวันนัด',
   'เลื่อนนัด',
   'ติดต่อแอดมิน',
+  'พิกัดร้าน',
+  'พิกัด',
+  'แผนที่',
   'คุยกับพนักงาน',
   'คุยกับพนักงาน/เช็กคิวเดิม',
   'เช็กคิวเดิม',
@@ -194,6 +201,11 @@ async function handleTextMessage(event) {
         return 'closed_contact_admin';
       }
 
+      if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
+        await replyMessages(replyToken, [buildLocationMessage()]);
+        return 'closed_location';
+      }
+
       if (
         EXTRA_BOOKING_KEYWORDS.includes(incomingText) ||
         EXTRA_BOOKING_KEYWORDS.includes(normalized) ||
@@ -268,6 +280,11 @@ async function handleTextMessage(event) {
       return 'reopen_price_inquiry';
     }
 
+    if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
+      await replyMessages(replyToken, [buildLocationMessage()]);
+      return 'reopen_location';
+    }
+
     sessions.set(userId, {
       mode: 'booking',
       step: 'service',
@@ -328,6 +345,11 @@ async function handleTextMessage(event) {
       return 'post_price_to_price_again';
     }
 
+    if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
+      await replyMessages(replyToken, [buildLocationMessage()]);
+      return 'post_price_location';
+    }
+
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'booking',
@@ -361,7 +383,9 @@ async function handleTextMessage(event) {
           items: [
             quickReplyText('จองคิวบริการนี้'),
             quickReplyText('สอบถามราคา'),
+        quickReplyText('พิกัดร้าน'),
             quickReplyText('ติดต่อแอดมิน'),
+        quickReplyText('พิกัดร้าน'),
             quickReplyText('เมนู'),
           ],
         },
@@ -388,6 +412,11 @@ async function handleTextMessage(event) {
     markConversationClosed(userId);
     await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ');
     return 'contact_admin';
+  }
+
+  if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
+    await replyMessages(replyToken, [buildLocationMessage()]);
+    return 'send_location';
   }
 
   if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
@@ -640,6 +669,13 @@ async function handleBookingFlow(event, text, userId) {
         return 'service_old_case';
       }
 
+      if (text === 'พิกัดร้าน') {
+        session.mode = 'idle';
+        session.step = 'service';
+        await replyMessages(replyToken, [buildLocationMessage()]);
+        return 'service_location';
+      }
+
       if (text === 'จองคิว' || text === 'จองคิวเพิ่มเติม') {
         session.step = 'style';
         await replyText(replyToken, 'ต้องการจองสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
@@ -757,6 +793,7 @@ async function handlePriceInquiryFlow(event, text, userId) {
               quickReplyText('จองคิวบริการนี้'),
               quickReplyText('สอบถามราคา'),
               quickReplyText('ติดต่อแอดมิน'),
+        quickReplyText('พิกัดร้าน'),
               quickReplyText('เมนู'),
             ],
           },
@@ -827,6 +864,7 @@ function buildWelcomeMessage() {
         quickReplyText('สอบถามราคา'),
         quickReplyText('เปลี่ยนวันนัด'),
         quickReplyText('ติดต่อแอดมิน'),
+        quickReplyText('พิกัดร้าน'),
       ],
     },
   };
@@ -849,6 +887,7 @@ function buildServiceQuestion() {
         quickReplyText('สอบถามราคา'),
         quickReplyText('เปลี่ยนวันนัด'),
         quickReplyText('ติดต่อแอดมิน'),
+        quickReplyText('พิกัดร้าน'),
       ],
     },
   };
@@ -871,21 +910,65 @@ function buildReopenMenuMessage() {
 
 function buildPriceInquiryMenuMessage() {
   return {
-    type: 'text',
-    text: 'ต้องการสอบถามราคาบริการไหนคะ กรุณาเลือกจากเมนูด้านล่างได้เลยค่ะ',
-    quickReply: {
-      items: [
-        quickReplyText('ราคาตัดผมชาย'),
-        quickReplyText('ราคาทำเล็บ'),
-        quickReplyText('ราคาต่อเล็บ'),
-        quickReplyText('ราคาทำสีผม'),
-        quickReplyText('ราคาดัดผม'),
-        quickReplyText('ราคาสระ/ไดร์'),
-        quickReplyText('ราคาทรีตเมนต์'),
-        quickReplyText('ราคาสักลาย'),
-      ],
+    type: 'flex',
+    altText: 'เมนูสอบถามราคา',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          {
+            type: 'text',
+            text: 'สอบถามราคาบริการ',
+            weight: 'bold',
+            size: 'xl',
+            color: '#4E4326',
+          },
+          {
+            type: 'text',
+            text: 'กรุณาเลือกหมวดที่ต้องการสอบถามราคาได้เลยค่ะ',
+            wrap: true,
+            color: '#6B5E3B',
+            size: 'sm',
+          },
+          ...buildPriceMenuButtons(),
+        ],
+      },
+      styles: {
+        body: {
+          backgroundColor: '#F5E8BE',
+        },
+      },
     },
   };
+}
+
+function buildPriceMenuButtons() {
+  const labels = [
+    'ราคาตัดผมชาย',
+    'ราคาทำเล็บ',
+    'ราคาต่อเล็บ',
+    'ราคาทำสีผม',
+    'ราคาดัดผม',
+    'ราคาสระ/ไดร์',
+    'ราคาทรีตเมนต์',
+    'ราคาสักลาย',
+  ];
+
+  return labels.map((label) => ({
+    type: 'button',
+    style: 'secondary',
+    height: 'sm',
+    color: '#D8C99A',
+    action: {
+      type: 'message',
+      label,
+      text: label,
+    },
+  }));
 }
 
 function normalizePriceService(text) {
