@@ -949,7 +949,6 @@ function buildDetailQuestion(service) {
 
 function buildSummaryForAdmin(event, data) {
   const source = event.source || {};
-  const imageLinks = (data.images || []).map((img, index) => `รูปที่ ${index + 1}: ${img.url}`).join('\n');
 
   return [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
@@ -964,7 +963,6 @@ function buildSummaryForAdmin(event, data) {
     `เวลาที่สะดวก: ${safeValue(data.preferredTime)}`,
     `รายละเอียดเพิ่มเติม: ${safeValue(data.additionalDetails)}`,
     `จำนวนรูปที่แนบ: ${(data.images || []).length}`,
-    imageLinks || 'ลิงก์รูป: -',
     `LINE userId: ${safeValue(source.userId)}`,
     `source type: ${safeValue(source.type)}`,
   ].join('\n');
@@ -1034,23 +1032,15 @@ async function pushMessagesToAdminGroup(messages) {
 async function pushImagesToAdminGroup(images = []) {
   if (!images.length) return;
 
-  for (const img of images) {
-    if (!img?.url) continue;
+  const lines = ['📷 ลิงก์รูปที่ลูกค้าส่ง'];
 
-    try {
-      await pushMessagesToAdminGroup([
-        {
-          type: 'image',
-          originalContentUrl: img.url,
-          previewImageUrl: img.url,
-        },
-      ]);
-    } catch (error) {
-      console.error('push image failed:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
-
-      await pushToAdminGroup(`เปิดรูปไม่ได้อัตโนมัติ ลิงก์รูป: ${img.url}`);
+  images.forEach((img, index) => {
+    if (img?.url) {
+      lines.push(`รูปที่ ${index + 1}: ${img.url}`);
     }
-  }
+  });
+
+  await pushToAdminGroup(lines.join('\n'));
 }
 
 async function replyText(replyToken, text) {
