@@ -61,6 +61,8 @@ const RESCHEDULE_KEYWORDS = ['เปลี่ยนวันนัด', 'เล�
 const CONTACT_ADMIN_KEYWORDS = ['ติดต่อแอดมิน', 'คุยกับแอดมิน', 'แอดมิน'];
 const OLD_CASE_KEYWORDS = ['คุยกับพนักงาน/เช็กคิวเดิม', 'คุยกับพนักงาน', 'เช็กคิวเดิม', 'คิวเดิม'];
 const EXTRA_BOOKING_KEYWORDS = ['จองคิวเพิ่มเติม', 'จองเพิ่ม', 'จองใหม่'];
+const POST_PRICE_BOOKING_KEYWORDS = ['จองคิว', 'จองคิวบริการนี้', 'จองบริการนี้', 'เอารายการนี้', 'ต้องการจอง'];
+
 const START_TRIGGER_KEYWORDS = [
   'เมนู',
   'menu',
@@ -275,6 +277,97 @@ async function handleTextMessage(event) {
     });
     await replyMessages(replyToken, [buildReopenMenuMessage()]);
     return 'reopen_menu_repeat';
+  }
+
+  if (session.mode === 'postPriceAction') {
+    const rememberedService = session.data?.priceService;
+
+    if (POST_PRICE_BOOKING_KEYWORDS.includes(incomingText) || POST_PRICE_BOOKING_KEYWORDS.includes(normalized)) {
+      if (!rememberedService) {
+        sessions.set(userId, {
+          mode: 'booking',
+          step: 'service',
+          data: {},
+          closedAt: null,
+          lastSeenAt: Date.now(),
+        });
+        await replyText(replyToken, 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+        return 'post_price_booking_without_memory';
+      }
+
+      startBookingFromKnownService(userId, rememberedService);
+
+      if (rememberedService === 'สักลาย') {
+        await replyText(
+          replyToken,
+          'ได้เลยค่ะ สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น'
+        );
+        return 'post_price_booking_tattoo';
+      }
+
+      await replyText(replyToken, buildDetailQuestion(rememberedService));
+      return 'post_price_booking_known_service';
+    }
+
+    if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
+      await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
+      markConversationClosed(userId);
+      await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
+      return 'post_price_contact_admin';
+    }
+
+    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+      sessions.set(userId, {
+        mode: 'priceInquiry',
+        step: 'choosePriceService',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+      return 'post_price_to_price_again';
+    }
+
+    if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      return handleBookingFlow(event, incomingText, userId);
+    }
+
+    if (RESTART_KEYWORDS.includes(normalized)) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+      return 'post_price_restart';
+    }
+
+    await replyMessages(replyToken, [
+      {
+        type: 'text',
+        text: rememberedService
+          ? `หากต้องการจองคิวบริการ ${rememberedService} สามารถกด “จองคิวบริการนี้” ได้เลยค่ะ`
+          : 'หากต้องการดำเนินการต่อ สามารถเลือกเมนูด้านล่างได้เลยค่ะ',
+        quickReply: {
+          items: [
+            quickReplyText('จองคิวบริการนี้'),
+            quickReplyText('สอบถามราคา'),
+            quickReplyText('ติดต่อแอดมิน'),
+            quickReplyText('เมนู'),
+          ],
+        },
+      },
+    ]);
+    return 'post_price_repeat_options';
   }
 
   if (RESTART_KEYWORDS.includes(normalized)) {
@@ -658,10 +751,10 @@ async function handlePriceInquiryFlow(event, text, userId) {
         buildPriceResponseMessage(selectedService),
         {
           type: 'text',
-          text: 'หากต้องการจองคิวหรือสอบถามเพิ่มเติม สามารถเลือกเมนูด้านล่างได้เลยค่ะ',
+          text: `หากต้องการจองคิวบริการ ${selectedService} สามารถกด “จองคิวบริการนี้” ได้เลยค่ะ`,
           quickReply: {
             items: [
-              quickReplyText('จองคิว'),
+              quickReplyText('จองคิวบริการนี้'),
               quickReplyText('สอบถามราคา'),
               quickReplyText('ติดต่อแอดมิน'),
               quickReplyText('เมนู'),
@@ -670,7 +763,16 @@ async function handlePriceInquiryFlow(event, text, userId) {
         },
       ]);
 
-      markConversationClosed(userId);
+      sessions.set(userId, {
+        mode: 'postPriceAction',
+        step: 'afterPrice',
+        data: {
+          priceService: selectedService,
+        },
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+
       return 'price_completed';
     }
 
@@ -810,6 +912,22 @@ function normalizePriceService(text) {
   };
 
   return map[value] || null;
+}
+
+function startBookingFromKnownService(userId, service) {
+  const nextSession = {
+    mode: 'booking',
+    step: service === 'สักลาย' ? 'tattooNeedPhoto' : 'style',
+    data: {
+      service,
+      images: service === 'สักลาย' ? [] : undefined,
+    },
+    closedAt: null,
+    lastSeenAt: Date.now(),
+  };
+
+  sessions.set(userId, nextSession);
+  return nextSession;
 }
 
 function getSamplePriceData(service) {
