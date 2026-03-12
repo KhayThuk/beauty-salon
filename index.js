@@ -12,29 +12,6 @@ const config = {
 const ADMIN_GROUP_ID = process.env.ADMIN_GROUP_ID;
 
 const missing = [];
-
-if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
-if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
-if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
-
-if (missing.length > 0) {
-  console.warn(`Missing environment variables: ${missing.join(', ')}`);
-}
-
-app.get('/', (req, res) => {
-  res.status(200).send('LINE bot running');
-});
-
-app.post('/webhook', line.middleware(config), (req, res) => {
-  res.status(200).end();
-});
-
-app.listen(port, () => {
-  console.log(`Server running on ${port}`);
-});
-
-const missing = [];
-
 if (!config.channelAccessToken) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
 if (!config.channelSecret) missing.push('LINE_CHANNEL_SECRET');
 if (!ADMIN_GROUP_ID) missing.push('ADMIN_GROUP_ID');
@@ -81,7 +58,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
     const results = await Promise.all((req.body.events || []).map(handleEvent));
     res.status(200).json({ ok: true, results });
   } catch (error) {
-    console.error('Webhook error:', error);
+    console.error('Webhook error:', error?.body || error);
     res.status(500).end();
   }
 });
