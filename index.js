@@ -106,6 +106,8 @@ const SERVICE_REFERENCE_LINKS = {
   'สักลาย': 'https://drive.google.com/drive/folders/1HQ_iedlG7WU7uIlnnxEcflaejGDe38tw?usp=drive_link',
 };
 
+const PRESELECT_REFERENCE_SERVICES = ['ตัดผมชาย', 'ทำเล็บ', 'ต่อเล็บ', 'ดัดผม'];
+
 app.get('/', (req, res) => {
   res.status(200).json({
     ok: true,
@@ -582,7 +584,9 @@ async function handleImageMessage(event) {
     return 'image_outside_booking';
   }
 
-  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'samplePhoto'].includes(session.step)) {
+  const currentService = session.data?.service;
+
+  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
     await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
     return 'image_unexpected_booking';
   }
@@ -596,13 +600,27 @@ async function handleImageMessage(event) {
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
 
-      await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ');
+      await replyText(
+        replyToken,
+        'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
+      );
       return 'tattoo_first_image_saved';
     }
 
     if (session.step === 'tattooChooseDesign') {
       await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
       return 'tattoo_extra_image_saved';
+    }
+
+    if (session.step === 'style' && PRESELECT_REFERENCE_SERVICES.includes(currentService)) {
+      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+      session.step = 'preferredStaff';
+
+      await replyText(
+        replyToken,
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ'
+      );
+      return 'reference_style_image_saved_skip_sample_photo';
     }
 
     if (session.step === 'samplePhoto') {
@@ -697,11 +715,20 @@ async function handleBookingFlow(event, text, userId) {
       await replyText(replyToken, 'ขอทราบชื่อสำหรับการจองหน่อยค่ะ');
       return 'tattoo_style_to_name';
 
-    case 'style':
+    case 'style': {
       session.data.style = text;
+
+      if (PRESELECT_REFERENCE_SERVICES.includes(session.data.service)) {
+        session.data.samplePhoto = session.data.samplePhoto || 'ลูกค้าเลือกแบบ/แจ้งรายละเอียดแล้ว';
+        session.step = 'preferredStaff';
+        await replyText(replyToken, 'ต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
+        return 'ask_staff_skip_sample_photo_for_reference_service';
+      }
+
       session.step = 'samplePhoto';
       await replyText(replyToken, 'มีรูปตัวอย่างไหมคะ ถ้ามีสามารถส่งรูปมาได้เลย หรือถ้าไม่มีให้พิมพ์ว่า “ไม่มีค่ะ” ได้เลยค่ะ');
       return 'ask_sample_photo';
+    }
 
     case 'samplePhoto':
       session.data.samplePhoto = text;
@@ -1383,7 +1410,7 @@ function buildSummaryForAdmin(event, data) {
     'ประเภทคำขอ: จอง/สอบถามบริการ',
     `บริการ: ${safeValue(data.service)}`,
     `แบบ/รายละเอียดที่ต้องการ: ${safeValue(data.style)}`,
-    `มีรูปตัวอย่างไหม: ${safeValue(data.samplePhoto)}`,
+    `สถานะแบบอ้างอิง: ${safeValue(data.samplePhoto)}`,
     `ช่างที่ต้องการ: ${safeValue(data.preferredStaff)}`,
     `ชื่อลูกค้า: ${safeValue(data.name)}`,
     `เบอร์โทร: ${safeValue(data.phone)}`,
