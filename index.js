@@ -100,6 +100,14 @@ const START_TRIGGER_KEYWORDS = [
 const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
 const TATTOO_REFERENCE_LINK = 'https://linevoom.line.me/post/1177332387036083141';
 
+const SERVICE_REFERENCE_LINKS = {
+  'ตัดผมชาย': 'https://drive.google.com/drive/folders/17p6P1qZpXtgePMhO38Svu15hFg5oU__g?usp=drive_link',
+  'ทำเล็บ': 'https://drive.google.com/drive/folders/1XKvlT5TvD1fml47Opt233TzZNLsq0nsE?usp=drive_link',
+  'ต่อเล็บ': 'https://drive.google.com/drive/folders/1XKvlT5TvD1fml47Opt233TzZNLsq0nsE?usp=drive_link',
+  'ดัดผม': 'https://drive.google.com/drive/folders/1_JROcKwjIa8ZDnQYMt7xZ9h6dtKuX1PB?usp=sharing',
+  'สักลาย': 'https://drive.google.com/drive/folders/1HQ_iedlG7WU7uIlnnxEcflaejGDe38tw?usp=drive_link',
+};
+
 app.get('/', (req, res) => {
   res.status(200).json({
     ok: true,
@@ -1180,6 +1188,164 @@ function buildLocationMessage() {
               type: 'uri',
               label: 'เปิดแผนที่ร้าน',
               uri: 'https://maps.app.goo.gl/MkTzWooXkZwXPfwf8',
+            },
+          },
+        ],
+      },
+      styles: {
+        body: {
+          backgroundColor: '#F8F1D7',
+        },
+        footer: {
+          backgroundColor: '#F8F1D7',
+        },
+      },
+    },
+  };
+}
+
+
+function hasServiceReferenceCard(service) {
+  return Boolean(SERVICE_REFERENCE_LINKS[service]);
+}
+
+function buildServiceIntroMessages(service) {
+  const messages = [];
+
+  if (hasServiceReferenceCard(service)) {
+    messages.push(buildServiceReferenceFlex(service));
+  }
+
+  messages.push({
+    type: 'text',
+    text: buildDetailQuestion(service),
+  });
+
+  return messages;
+}
+
+function buildServiceReferenceFlex(service) {
+  const configs = {
+    'ตัดผมชาย': {
+      title: 'ตัดผมชาย',
+      subtitle: 'เช็กแบบทรงผมก่อนเริ่มจองคิว',
+      detailLines: [
+        '• กดปุ่มด้านล่างเพื่อดูรูปทรงผมตัวอย่าง',
+        '• เลือกรูปที่ชอบแล้วส่งกลับมาให้ร้านได้เลย',
+        '• หากรู้ชื่อทรงผม สามารถพิมพ์ชื่อทรงมาพร้อมกันได้',
+        '• แจ้งความยาวผมปัจจุบันหรือสไตล์ที่อยากได้เพิ่มได้ค่ะ',
+      ],
+      buttonLabel: 'เช็กรูปทรงผม',
+    },
+    'ทำเล็บ': {
+      title: 'ทำเล็บ',
+      subtitle: 'เช็กแบบเล็บก่อนเริ่มจองคิว',
+      detailLines: [
+        '• กดปุ่มด้านล่างเพื่อดูรูปแบบเล็บตัวอย่าง',
+        '• เลือกลาย สี หรือโทนที่ชอบแล้วส่งมาให้ร้านได้ค่ะ',
+        '• หากมีลายที่ต้องการอยู่แล้ว สามารถส่งรูปของตัวเองมาได้',
+        '• แจ้งได้เลยว่าต้องการทาสีเจล สปามือ หรือดูแลเล็บแบบไหน',
+      ],
+      buttonLabel: 'เช็กรูปทำเล็บ',
+    },
+    'ต่อเล็บ': {
+      title: 'ต่อเล็บ',
+      subtitle: 'เช็กแบบต่อเล็บก่อนเริ่มจองคิว',
+      detailLines: [
+        '• กดปุ่มด้านล่างเพื่อดูตัวอย่างทรงและลายเล็บ',
+        '• เลือกแบบที่ชอบแล้วส่งรูปมาให้ร้านประเมินได้เลย',
+        '• หากมีแบบมาเอง สามารถส่งรูปของตัวเองให้ร้านเช็กได้ค่ะ',
+        '• แจ้งความยาว ทรงเล็บ และลายที่ต้องการมาพร้อมกันได้เลย',
+      ],
+      buttonLabel: 'เช็กรูปต่อเล็บ',
+    },
+    'ดัดผม': {
+      title: 'ดัดผม',
+      subtitle: 'เช็กแบบลอนก่อนเริ่มจองคิว',
+      detailLines: [
+        '• กดปุ่มด้านล่างเพื่อดูตัวอย่างลอนดัด',
+        '• ลูกค้าชายหรือหญิงสามารถเลือกแบบลอนที่ชอบแล้วส่งมาได้เลย',
+        '• แจ้งความยาวผมปัจจุบันและสภาพผมคร่าว ๆ เช่น ผมตรง ผมทำสี หรือผมเสีย',
+        '• หากมีแบบจากที่อื่น สามารถส่งรูปมาให้ร้านช่วยประเมินได้ค่ะ',
+      ],
+      buttonLabel: 'เช็กรูปดัดผม',
+    },
+    'สักลาย': {
+      title: 'สักลาย',
+      subtitle: 'เช็กลายก่อนเริ่มจองคิว',
+      detailLines: [
+        '• กดปุ่มด้านล่างเพื่อดูตัวอย่างลายสัก',
+        '• เลือกลายที่ชอบแล้วส่งรูปกลับมาให้ร้านเช็กได้เลย',
+        '• หากมีลายมาเอง สามารถส่งรูปของตัวเองให้ร้านประเมินได้ค่ะ',
+        '• หลังจากนั้นรบกวนส่งรูปบริเวณที่จะสักหรือรูปอ้างอิงเบื้องต้นเพิ่มเติม',
+      ],
+      buttonLabel: 'เช็กรูปลายสัก',
+    },
+  };
+
+  const config = configs[service];
+  if (!config) {
+    return {
+      type: 'text',
+      text: buildDetailQuestion(service),
+    };
+  }
+
+  return {
+    type: 'flex',
+    altText: `${config.title} - เช็กรูปก่อนจองคิว`,
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '20px',
+        backgroundColor: '#D8C99A',
+        contents: [
+          {
+            type: 'text',
+            text: config.title,
+            weight: 'bold',
+            size: 'xl',
+            color: '#4E4326',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: config.subtitle,
+            margin: 'md',
+            size: 'sm',
+            color: '#6B5E3B',
+            wrap: true,
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: config.detailLines.map((line) => ({
+          type: 'text',
+          text: line,
+          size: 'sm',
+          color: '#4E4326',
+          wrap: true,
+        })),
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#8B6B3F',
+            action: {
+              type: 'uri',
+              label: config.buttonLabel,
+              uri: SERVICE_REFERENCE_LINKS[service],
             },
           },
         ],
