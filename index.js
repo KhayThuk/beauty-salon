@@ -1,3 +1,4 @@
+console.log('RUNNING NEW BEAUTY SALON CODE V2');
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { v2: cloudinary } = require('cloudinary');
