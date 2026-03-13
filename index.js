@@ -751,7 +751,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'preferredTime':
       session.data.preferredTime = text;
       session.step = 'additionalDetails';
-      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ หากมมีสามารถพิมพ์เเจ้งตอนนี้ได้เลยนะคะ');
+      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ หากมีสามารถพิมพ์เเจ้งตอนนี้ได้เลยนะคะ');
       return 'ask_additional';
 
     case 'additionalDetails': {
@@ -1232,7 +1232,7 @@ function buildServiceReferenceFlex(service) {
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูรูปทรงผมตัวอย่าง',
         '• เลือกรูปที่ชอบแล้วส่งกลับมาให้ร้านได้เลย',
-        '• หากรู้ชื่อทรงผม สามารถพิมพ์ชื่อทรงมาพร้อมกันได้',
+        '• หากรู้ชื่อทรงผม สามารถพิมพ์ชื่อทรงส่งมาพร้อมกันได้',
         '• แจ้งความยาวผมปัจจุบันหรือสไตล์ที่อยากได้เพิ่มได้ค่ะ',
       ],
       buttonLabel: 'เช็กรูปทรงผม',
