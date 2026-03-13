@@ -36,7 +36,6 @@ cloudinary.config({
   api_secret: CLOUDINARY_API_SECRET,
 });
 
-// In-memory state per userId
 const sessions = new Map();
 
 const SERVICES = [
@@ -98,7 +97,6 @@ const START_TRIGGER_KEYWORDS = [
 ];
 
 const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
-const TATTOO_REFERENCE_LINK = 'https://linevoom.line.me/post/1177332387036083141';
 
 const SERVICE_REFERENCE_LINKS = {
   'ตัดผมชาย': 'https://drive.google.com/drive/folders/17p6P1qZpXtgePMhO38Svu15hFg5oU__g?usp=drive_link',
@@ -323,14 +321,11 @@ async function handleTextMessage(event) {
       startBookingFromKnownService(userId, rememberedService);
 
       if (rememberedService === 'สักลาย') {
-        await replyText(
-          replyToken,
-          'ได้เลยค่ะ สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น'
-        );
+        await replyMessages(replyToken, buildTattooIntroMessages());
         return 'post_price_booking_tattoo';
       }
 
-      await replyText(replyToken, buildDetailQuestion(rememberedService));
+      await replyMessages(replyToken, buildServiceIntroMessages(rememberedService));
       return 'post_price_booking_known_service';
     }
 
@@ -391,9 +386,8 @@ async function handleTextMessage(event) {
           items: [
             quickReplyText('จองคิวบริการนี้'),
             quickReplyText('สอบถามราคา'),
-        quickReplyText('พิกัดร้าน'),
+            quickReplyText('พิกัดร้าน'),
             quickReplyText('ติดต่อแอดมิน'),
-        quickReplyText('พิกัดร้าน'),
             quickReplyText('เมนู'),
           ],
         },
@@ -602,16 +596,7 @@ async function handleImageMessage(event) {
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
 
-      await replyMessages(replyToken, [
-        {
-          type: 'text',
-          text: `ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถเข้าไปดูลายเพิ่มเติมได้ที่ลิงก์นี้เลยนะคะ\n${TATTOO_REFERENCE_LINK}`,
-        },
-        {
-          type: 'text',
-          text: 'เช็กลายที่ต้องการได้เลยค่ะ\nหากมีลายที่นำมาเอง สามารถส่งรูปเพิ่มเข้ามาได้เลยนะคะ\nเมื่อพร้อมแล้ว พิมพ์รายละเอียดลาย/ตำแหน่ง/ขนาดที่ต้องการมาได้เลยค่ะ',
-        },
-      ]);
+      await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ');
       return 'tattoo_first_image_saved';
     }
 
@@ -693,13 +678,13 @@ async function handleBookingFlow(event, text, userId) {
       if (text === 'สักลาย') {
         session.step = 'tattooNeedPhoto';
         session.data.images = [];
-        await replyText(replyToken, 'สำหรับบริการสักลาย รบกวนส่งรูปที่ต้องการให้ร้านดูก่อน 1 รูปได้เลยค่ะ\nเช่น รูปบริเวณที่จะสัก หรือรูปอ้างอิงเบื้องต้น');
-        return 'ask_tattoo_first_photo';
+        await replyMessages(replyToken, buildTattooIntroMessages());
+        return 'ask_tattoo_intro';
       }
 
       session.step = 'style';
-      await replyText(replyToken, buildDetailQuestion(text));
-      return 'ask_style';
+      await replyMessages(replyToken, buildServiceIntroMessages(text));
+      return 'ask_service_intro';
     }
 
     case 'tattooNeedPhoto':
@@ -751,7 +736,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'preferredTime':
       session.data.preferredTime = text;
       session.step = 'additionalDetails';
-      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ หากมีสามารถพิมพ์เเจ้งตอนนี้ได้เลยนะคะ');
+      await replyText(replyToken, 'มีรายละเอียดเพิ่มเติมไหมคะ หากมีสามารถพิมพ์แจ้งตอนนี้ได้เลยนะคะ');
       return 'ask_additional';
 
     case 'additionalDetails': {
@@ -759,7 +744,6 @@ async function handleBookingFlow(event, text, userId) {
       const adminSummary = buildSummaryForAdmin(event, session.data);
 
       await pushToAdminGroup(adminSummary);
-
       markConversationClosed(userId);
 
       await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
@@ -1076,7 +1060,6 @@ function buildPriceResponseMessage(service) {
   };
 }
 
-
 function buildLocationMessage() {
   return {
     type: 'flex',
@@ -1204,7 +1187,6 @@ function buildLocationMessage() {
   };
 }
 
-
 function hasServiceReferenceCard(service) {
   return Boolean(SERVICE_REFERENCE_LINKS[service]);
 }
@@ -1222,6 +1204,16 @@ function buildServiceIntroMessages(service) {
   });
 
   return messages;
+}
+
+function buildTattooIntroMessages() {
+  return [
+    buildServiceReferenceFlex('สักลาย'),
+    {
+      type: 'text',
+      text: 'เลือกลายที่ชอบจากลิงก์ได้เลยค่ะ หรือถ้ามีลายมาเองสามารถส่งรูปมาให้ร้านเช็กได้เช่นกัน\nจากนั้นรบกวนส่งรูปบริเวณที่จะสักหรือรูปอ้างอิงเบื้องต้นมา 1 รูปได้เลยนะคะ',
+    },
+  ];
 }
 
 function buildServiceReferenceFlex(service) {
@@ -1364,11 +1356,11 @@ function buildServiceReferenceFlex(service) {
 
 function buildDetailQuestion(service) {
   const map = {
-    'ตัดผมชาย': 'ต้องการทรงหรือสไตล์แบบไหนคะ และต้องการช่างคนไหนเป็นพิเศษไหม',
-    'ทำเล็บ': 'ต้องการทำเล็บแบบไหนคะ เช่น ทาสีเจล สปามือ หรือดูแลเล็บ พร้อมแจ้งลายหรือโทนสีที่ต้องการได้เลยค่ะ',
-    'ต่อเล็บ': 'ต้องการต่อเล็บแบบไหนคะ เช่น ต่อเจล ต่ออะคริลิก และอยากได้ทรง/ลายแบบไหนคะ',
+    'ตัดผมชาย': 'เลือกรูปที่ชอบแล้วส่งมาให้ร้านได้เลยค่ะ หรือพิมพ์ชื่อทรงผมที่ต้องการ พร้อมแจ้งรายละเอียดเพิ่มเติมได้เลยนะคะ',
+    'ทำเล็บ': 'เลือกลายหรือโทนสีที่ชอบแล้วส่งมาให้ร้านได้เลยค่ะ หรือถ้ามีแบบมาเองก็ส่งรูปมาได้เช่นกันนะคะ',
+    'ต่อเล็บ': 'เลือกทรงหรือแบบเล็บที่ต้องการแล้วส่งมาได้เลยค่ะ พร้อมแจ้งความยาว ทรง และลายที่ต้องการนะคะ',
     'ทำสีผม': 'ต้องการทำสีผมโทนไหนคะ และผมปัจจุบันยาวประมาณไหน หรือเคยผ่านการทำสีมาก่อนไหมคะ',
-    'ดัดผม': 'ต้องการดัดผมแบบไหนคะ เช่น ลอนคลาย ลอนแน่น และผมยาวประมาณไหนคะ',
+    'ดัดผม': 'เลือกรูปลอนที่ชอบแล้วส่งมาได้เลยค่ะ พร้อมแจ้งว่าเป็นผมชายหรือหญิง ความยาวผม และสภาพผมคร่าว ๆ นะคะ',
     'สระ/ไดร์': 'ต้องการสระ/ไดร์แบบไหนคะ เช่น ไดร์ตรง ไดร์ลอน หรือมีโอกาสพิเศษไหมคะ',
     'ทรีตเมนต์': 'ต้องการทรีตเมนต์แบบไหนคะ หรือมีปัญหาเส้นผม/หนังศีรษะที่อยากดูแลเป็นพิเศษไหมคะ',
     'สักลาย': 'รบกวนส่งรูปมาก่อนได้เลยค่ะ',
@@ -1511,7 +1503,6 @@ function safeValue(value) {
 
 async function saveIncomingImage(messageId) {
   const stream = await client.getMessageContent(messageId);
-
   const buffer = await streamToBuffer(stream);
 
   const uploaded = await new Promise((resolve, reject) => {
