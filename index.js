@@ -1,4 +1,3 @@
-console.log('RUNNING NEW BEAUTY SALON CODE V2');
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { v2: cloudinary } = require('cloudinary');
@@ -1229,7 +1228,7 @@ function buildServiceReferenceFlex(service) {
   const configs = {
     'ตัดผมชาย': {
       title: 'ตัดผมชาย',
-      subtitle: 'เลือกทรงผมก่อนเริ่มจองคิว',
+      subtitle: 'เช็กแบบทรงผมก่อนเริ่มจองคิว',
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูรูปทรงผมตัวอย่าง',
         '• เลือกรูปที่ชอบแล้วส่งกลับมาให้ร้านได้เลย',
@@ -1240,7 +1239,7 @@ function buildServiceReferenceFlex(service) {
     },
     'ทำเล็บ': {
       title: 'ทำเล็บ',
-      subtitle: 'เลือกแบบเล็บก่อนเริ่มจองคิว',
+      subtitle: 'เช็กแบบเล็บก่อนเริ่มจองคิว',
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูรูปแบบเล็บตัวอย่าง',
         '• เลือกลาย สี หรือโทนที่ชอบแล้วส่งมาให้ร้านได้ค่ะ',
@@ -1251,7 +1250,7 @@ function buildServiceReferenceFlex(service) {
     },
     'ต่อเล็บ': {
       title: 'ต่อเล็บ',
-      subtitle: 'เลือกแบบต่อเล็บก่อนเริ่มจองคิว',
+      subtitle: 'เช็กแบบต่อเล็บก่อนเริ่มจองคิว',
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูตัวอย่างทรงและลายเล็บ',
         '• เลือกแบบที่ชอบแล้วส่งรูปมาให้ร้านประเมินได้เลย',
@@ -1262,7 +1261,7 @@ function buildServiceReferenceFlex(service) {
     },
     'ดัดผม': {
       title: 'ดัดผม',
-      subtitle: 'เลือกแบบดัดผมก่อนเริ่มจองคิว',
+      subtitle: 'เช็กแบบลอนก่อนเริ่มจองคิว',
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูตัวอย่างลอนดัด',
         '• ลูกค้าชายหรือหญิงสามารถเลือกแบบลอนที่ชอบแล้วส่งมาได้เลย',
@@ -1273,7 +1272,7 @@ function buildServiceReferenceFlex(service) {
     },
     'สักลาย': {
       title: 'สักลาย',
-      subtitle: 'เลือกลายก่อนเริ่มจองคิว',
+      subtitle: 'เช็กลายก่อนเริ่มจองคิว',
       detailLines: [
         '• กดปุ่มด้านล่างเพื่อดูตัวอย่างลายสัก',
         '• เลือกลายที่ชอบแล้วส่งรูปกลับมาให้ร้านเช็กได้เลย',
