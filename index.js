@@ -3,9 +3,10 @@ const line = require('@line/bot-sdk');
 const { v2: cloudinary } = require('cloudinary');
 
 const app = express();
+const port = process.env.PORT || 3000;
+
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 app.get('/favicon.png', (req, res) => res.status(204).end());
-const port = process.env.PORT || 3000;
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -89,7 +90,7 @@ const START_TRIGGER_KEYWORDS = [
   'คุยกับพนักงาน',
   'คุยกับพนักงาน/เช็กคิวเดิม',
   'เช็กคิวเดิม',
-  'คิวเดิม'
+  'คิวเดิม',
 ];
 
 const CLOSED_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -109,41 +110,61 @@ app.get('/', (req, res) => {
     ok: true,
     service: 'beauty-salon-line-bot',
     message: 'LINE webhook is running',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    uptime: process.uptime(),
   });
 });
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
   try {
-    const results = await Promise.all((req.body.events || []).map(handleEvent));
-    res.status(200).json({ ok: true, results });
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    const results = await Promise.all(events.map(handleEvent));
+    return res.status(200).json({ ok: true, results });
   } catch (error) {
-    console.error('Webhook error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
-    res.status(500).end();
+    console.error(
+      'Webhook error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
+    return res.status(200).json({ ok: false });
   }
 });
 
 async function handleEvent(event) {
-  if (event.source?.type === 'group' && event.source?.groupId) {
-    console.log('GROUP ID:', event.source.groupId);
+  try {
+    if (event.source?.type === 'group' && event.source?.groupId) {
+      console.log('GROUP ID:', event.source.groupId);
+    }
+
+    if (event.type !== 'message') return null;
+
+    if (event.message?.type === 'text') {
+      return await handleTextMessage(event);
+    }
+
+    if (event.message?.type === 'image') {
+      return await handleImageMessage(event);
+    }
+
+    return null;
+  } catch (error) {
+    console.error(
+      'handleEvent error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
+    return null;
   }
-
-  if (event.type !== 'message') return null;
-
-  if (event.message.type === 'text') {
-    return handleTextMessage(event);
-  }
-
-  if (event.message.type === 'image') {
-    return handleImageMessage(event);
-  }
-
-  return null;
 }
 
 async function handleTextMessage(event) {
-  const userId = event.source.userId;
+  const userId = event.source?.userId;
   const replyToken = event.replyToken;
-  const incomingText = (event.message.text || '').trim();
+  const incomingText = (event.message?.text || '').trim();
   const normalized = normalizeText(incomingText);
 
   if (!userId) {
@@ -160,6 +181,18 @@ async function handleTextMessage(event) {
 
   const session = sessions.get(userId);
   session.lastSeenAt = Date.now();
+
+  if (session.mode === 'booking') {
+    return handleBookingFlow(event, incomingText, userId);
+  }
+
+  if (session.mode === 'priceInquiry') {
+    return handlePriceInquiryFlow(event, incomingText, userId);
+  }
+
+  if (session.mode === 'reschedule') {
+    return handleRescheduleFlow(event, incomingText, userId);
+  }
 
   if (session.mode === 'closed') {
     const passed = Date.now() - (session.closedAt || 0);
@@ -232,6 +265,7 @@ async function handleTextMessage(event) {
 
       freshSession.mode = 'booking';
       freshSession.step = 'service';
+      freshSession.data = {};
       await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
       return 'closed_restart_general';
     }
@@ -272,7 +306,7 @@ async function handleTextMessage(event) {
       return 'reopen_reschedule';
     }
 
-    if (incomingText === 'สอบถามราคา') {
+    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'priceInquiry',
         step: 'choosePriceService',
@@ -466,13 +500,10 @@ async function handleTextMessage(event) {
   }
 
   if (session.mode === 'idle') {
-
-    // ถ้าเป็นข้อความแรก ไม่ต้องส่งคำทักทาย
     if (isFirstMessage) {
       return 'ignore_first_message';
     }
 
-    // เริ่มจองคิวเมื่อพิมพ์ชื่อบริการ
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'booking',
@@ -485,8 +516,7 @@ async function handleTextMessage(event) {
       return handleBookingFlow(event, incomingText, userId);
     }
 
-    // โหมดสอบถามราคา
-    if (incomingText === 'สอบถามราคา') {
+    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'priceInquiry',
         step: 'choosePriceService',
@@ -498,8 +528,8 @@ async function handleTextMessage(event) {
       await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
       return 'start_price_inquiry';
     }
-
   }
+
   if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
     sessions.set(userId, {
       mode: 'booking',
@@ -548,23 +578,8 @@ async function handleTextMessage(event) {
   return 'idle_fallback_to_menu';
 }
 
-if (session.mode === 'booking') {
-  return handleBookingFlow(event, incomingText, userId);
-}
-
-if (session.mode === 'priceInquiry') {
-  return handlePriceInquiryFlow(event, incomingText, userId);
-}
-
-if (session.mode === 'reschedule') {
-  return handleRescheduleFlow(event, incomingText, userId);
-}
-
-sessions.set(userId, createDefaultSession());
-return 'fallback_reset';
-
 async function handleImageMessage(event) {
-  const userId = event.source.userId;
+  const userId = event.source?.userId;
   const replyToken = event.replyToken;
 
   if (!userId) {
@@ -586,73 +601,70 @@ async function handleImageMessage(event) {
     );
     return 'image_outside_booking';
   }
-}
 
-const currentService = session.data?.service;
+  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
+    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
+    return 'image_unexpected_booking';
+  }
 
-if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
-  await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
-  return 'image_unexpected_booking';
-}
+  try {
+    const saved = await saveIncomingImage(event.message.id);
 
-try {
-  const saved = await saveIncomingImage(event.message.id);
+    if (!session.data.images) session.data.images = [];
+    session.data.images.push(saved);
 
-  if (!session.data.images) session.data.images = [];
-  session.data.images.push(saved);
+    if (session.step === 'tattooNeedPhoto') {
+      session.step = 'tattooChooseDesign';
 
-  if (session.step === 'tattooNeedPhoto') {
-    session.step = 'tattooChooseDesign';
+      await replyText(
+        replyToken,
+        'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
+      );
+      return 'tattoo_first_image_saved';
+    }
+
+    if (session.step === 'tattooChooseDesign') {
+      await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
+      return 'tattoo_extra_image_saved';
+    }
+
+    if (session.step === 'style') {
+      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+      session.step = 'preferredStaff';
+
+      await replyText(
+        replyToken,
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+      );
+      return 'reference_style_image_saved';
+    }
+
+    if (session.step === 'samplePhoto') {
+      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+      session.step = 'preferredStaff';
+
+      await replyText(
+        replyToken,
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+      );
+      return 'sample_photo_saved';
+    }
+
+    return 'image_saved';
+  } catch (error) {
+    console.error(
+      'handleImageMessage error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
 
     await replyText(
       replyToken,
-      'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
-    );
-    return 'tattoo_first_image_saved';
-  }
-
-  if (session.step === 'tattooChooseDesign') {
-    await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
-    return 'tattoo_extra_image_saved';
-  }
-
-  if (session.step === 'style') {
-    session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-    session.step = 'preferredStaff';
-
-    await replyText(
-      replyToken,
-      'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
-    );
-    return 'reference_style_image_saved';
-  }
-
-  if (session.step === 'samplePhoto') {
-    session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-    session.step = 'preferredStaff';
-
-    await replyText(
-      replyToken,
-      'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ เจ้าช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+      'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
     );
 
-    return 'sample_photo_saved';
+    return 'image_save_failed';
   }
-
-  return 'image_saved';
-
-} catch (error) {
-
-  console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error));
-
-  await replyText(
-    replyToken,
-    'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
-  );
-
-  return 'image_save_failed';
 }
-
 
 async function handleBookingFlow(event, text, userId) {
   const session = sessions.get(userId);
@@ -666,10 +678,7 @@ async function handleBookingFlow(event, text, userId) {
         session.mode = 'priceInquiry';
         session.step = 'choosePriceService';
         session.data = {};
-        await replyMessages(
-  replyToken,
-  [buildWelcomeMessage(), buildServiceQuestion()]
-);
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
         return 'service_to_price_inquiry';
       }
 
@@ -699,7 +708,7 @@ async function handleBookingFlow(event, text, userId) {
         return 'service_old_case';
       }
 
-      if (text === 'พิกัดร้าน') {
+      if (text === 'พิกัดร้าน' || text === 'พิกัด' || text === 'แผนที่') {
         session.mode = 'idle';
         session.step = 'service';
         await replyMessages(replyToken, [buildLocationMessage()]);
@@ -740,7 +749,7 @@ async function handleBookingFlow(event, text, userId) {
       if (PRESELECT_REFERENCE_SERVICES.includes(session.data.service)) {
         session.data.samplePhoto = session.data.samplePhoto || 'ลูกค้าเลือกแบบ/แจ้งรายละเอียดแล้ว';
         session.step = 'preferredStaff';
-        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเค ครับ/ค่ะ ได้เลยค่ะ');
+        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
         return 'ask_staff_skip_sample_photo_for_reference_service';
       }
 
@@ -752,7 +761,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'samplePhoto':
       session.data.samplePhoto = text;
       session.step = 'preferredStaff';
-      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเค ครับ/ค่ะ ได้เลยค่ะ');
+      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
       return 'ask_staff';
 
     case 'preferredStaff':
@@ -1041,7 +1050,7 @@ function startBookingFromKnownService(userId, service) {
     step: service === 'สักลาย' ? 'tattooNeedPhoto' : 'style',
     data: {
       service,
-      images: service === 'สักลาย' ? [] : undefined,
+      images: service === 'สักลาย' ? [] : [],
     },
     closedAt: null,
     lastSeenAt: Date.now(),
@@ -1055,19 +1064,19 @@ function getSamplePriceData(service) {
   const priceMap = {
     'ตัดผมชาย': {
       price: 'เริ่มต้น 80 บาท',
-      details: 'ทรงแฟชั่น ทูบล็อค รากไทร ไลเเฟด',
+      details: 'ทรงแฟชั่น ทูบล็อค รากไทร ไล่เฟด',
     },
     'ทำเล็บ': {
       price: 'เริ่มต้น 159 บาท',
-      details: 'ขึ้นอยู่กับรายการที่่ต้องการ เช่น ทาสีเจล สอบถามพนังงานเพิ่มเติมได้เลยค่ะ',
+      details: 'ขึ้นอยู่กับรายการที่ต้องการ เช่น ทาสีเจล สามารถสอบถามพนักงานเพิ่มเติมได้เลยค่ะ',
     },
     'ต่อเล็บ': {
       price: 'เริ่มต้น 199 บาท',
-      details: 'ขึ้นอยู่กับการเลือกต้องการแบบไหน เช่น ต่อเล็บชิดโคน pvc',
+      details: 'ขึ้นอยู่กับรูปแบบที่ต้องการ เช่น ต่อเล็บชิดโคน PVC',
     },
     'ทำสีผม': {
       price: 'เริ่มต้น 99 บาท',
-      details: 'ขึ้นอยู่กับความยาวผม สีเดิม และสีที่ต้องการเช็คหน้างานอีกครั้งค่ะ',
+      details: 'ขึ้นอยู่กับความยาวผม สีเดิม และสีที่ต้องการ โดยจะเช็กหน้างานอีกครั้งค่ะ',
     },
     'ดัดผม': {
       price: 'เริ่มต้น 800 บาท',
@@ -1075,7 +1084,7 @@ function getSamplePriceData(service) {
     },
     'สระ/ไดร์': {
       price: 'เริ่มต้น 150 บาท',
-      details: 'ไดร์ตรง / ไดร์ลอน ราคาต่างกันเล็กน้อย ขึ้นอยู่กับความยาวผม ชาย/หญิง เช็คหน้างานอีกครั้งค่ะ',
+      details: 'ไดร์ตรง / ไดร์ลอน ราคาต่างกันเล็กน้อย ขึ้นอยู่กับความยาวผม ชาย/หญิง เช็กหน้างานอีกครั้งค่ะ',
     },
     'ทรีตเมนต์': {
       price: 'เริ่มต้น 199 บาท',
@@ -1089,7 +1098,7 @@ function getSamplePriceData(service) {
 
   return priceMap[service] || {
     price: 'กรุณาสอบถามเพิ่มเติม',
-    details: 'รายละเอียดราคาอาจเปลี่ยนแปลงตามบริการ และหน้างาน กรุณาสอบถามพนักงานเพิ่มเติมได้เลยค่ะ',
+    details: 'รายละเอียดราคาอาจเปลี่ยนแปลงตามบริการและหน้างาน กรุณาสอบถามพนักงานเพิ่มเติมได้เลยค่ะ',
   };
 }
 
@@ -1485,7 +1494,10 @@ async function pushToAdminGroup(text) {
   try {
     await client.pushMessage(ADMIN_GROUP_ID, [{ type: 'text', text }]);
   } catch (error) {
-    console.error('pushToAdminGroup error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
+    console.error(
+      'pushToAdminGroup error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
   }
 }
 
@@ -1495,9 +1507,13 @@ async function replyText(replyToken, text) {
 
 async function replyMessages(replyToken, messages) {
   try {
+    if (!replyToken || !Array.isArray(messages) || messages.length === 0) return;
     await client.replyMessage(replyToken, messages);
   } catch (error) {
-    console.error('replyMessages error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
+    console.error(
+      'replyMessages error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
   }
 }
 
@@ -1513,7 +1529,7 @@ function quickReplyText(label) {
 }
 
 function normalizeText(text) {
-  return text.trim().toLowerCase();
+  return String(text || '').trim().toLowerCase();
 }
 
 function isStartTrigger(normalized, rawText) {
@@ -1559,7 +1575,7 @@ async function saveIncomingImage(messageId) {
       },
       (error, result) => {
         if (error) return reject(error);
-        resolve(result);
+        return resolve(result);
       }
     );
 
@@ -1589,4 +1605,3 @@ function streamToBuffer(stream) {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
-
