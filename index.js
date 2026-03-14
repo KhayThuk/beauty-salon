@@ -627,24 +627,32 @@ async function handleImageMessage(event) {
   return 'reference_style_image_saved';
 }
 
- if (session.step === 'samplePhoto') {
-  session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-  session.step = 'preferredStaff';
+if (session.step === 'samplePhoto') {
+      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+      session.step = 'preferredStaff';
 
-  await replyText(
-    replyToken,
-    'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
-  );
+      await replyText(
+        replyToken,
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ เจ้าช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+      );
 
-  return 'sample_photo_saved';
-}
+      return 'sample_photo_saved';
+    }
 
     return 'image_saved';
+
   } catch (error) {
-    console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error?.body || error, null, 2));
-    await replyText(replyToken, 'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ');
+
+    console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error));
+
+    await replyText(
+      replyToken,
+      'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
+    );
+
     return 'image_save_failed';
   }
+
 
 async function handleBookingFlow(event, text, userId) {
   const session = sessions.get(userId);
