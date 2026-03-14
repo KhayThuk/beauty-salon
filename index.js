@@ -606,23 +606,28 @@ async function handleImageMessage(event) {
       return 'tattoo_extra_image_saved';
     }
 
-    if (session.step === 'style' && PRESELECT_REFERENCE_SERVICES.includes(currentService)) {
-      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-      session.step = 'preferredStaff';
+    if (session.step === 'style') {
+  session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+  session.step = 'preferredStaff';
 
-      await replyText(
-        replyToken,
-        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ'
-      );
-      return 'reference_style_image_saved_skip_sample_photo';
-    }
+  await replyText(
+    replyToken,
+    'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+  );
+  return 'reference_style_image_saved';
+}
 
-    if (session.step === 'samplePhoto') {
-      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-      session.step = 'preferredStaff';
-      await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ');
-      return 'sample_photo_saved';
-    }
+ if (session.step === 'samplePhoto') {
+  session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+  session.step = 'preferredStaff';
+
+  await replyText(
+    replyToken,
+    'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+  );
+
+  return 'sample_photo_saved';
+}
 
     return 'image_saved';
   } catch (error) {
@@ -715,7 +720,7 @@ async function handleBookingFlow(event, text, userId) {
       if (PRESELECT_REFERENCE_SERVICES.includes(session.data.service)) {
         session.data.samplePhoto = session.data.samplePhoto || 'ลูกค้าเลือกแบบ/แจ้งรายละเอียดแล้ว';
         session.step = 'preferredStaff';
-        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเคค ครับ/ค่ะ ได้เลยค่ะ');
+        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเค ครับ/ค่ะ ได้เลยค่ะ');
         return 'ask_staff_skip_sample_photo_for_reference_service';
       }
 
@@ -727,7 +732,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'samplePhoto':
       session.data.samplePhoto = text;
       session.step = 'preferredStaff';
-      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเคค ครับ/ค่ะ ได้เลยค่ะ');
+      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเค ครับ/ค่ะ ได้เลยค่ะ');
       return 'ask_staff';
 
     case 'preferredStaff':
