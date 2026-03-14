@@ -632,9 +632,9 @@ async function handleBookingFlow(event, text, userId) {
 
     case 'additionalDetails': {
       session.data.additionalDetails = text;
-      const adminSummary = await buildSummaryForAdmin(event, session.data);
+      const adminMessages = await buildSummaryForAdmin(event, session.data);
 
-      await pushToAdminGroup(adminSummary);
+      await pushToAdminGroup(adminMessages);
       markConversationClosed(userId);
 
       await replyText(replyToken, 'ทางร้านได้รับข้อมูลเรียบร้อยแล้ว เดี๋ยวแอดมินหรือช่างจะติดต่อกลับเพื่อยืนยันวันและเวลาที่แน่ชัดอีกครั้งนะคะ');
@@ -1292,16 +1292,13 @@ async function getLineDisplayName(event) {
 }
 
 async function buildSummaryForAdmin(event, data) {
-  const images = data.images || [];
-  const imageLines = images.length
-    ? images.map((img, index) => `รูปที่ ${index + 1}: ${img.url}`).join('\n')
-    : '-';
+  const images = Array.isArray(data.images) ? data.images.filter((img) => img?.url) : [];
   const lineDisplayName = await getLineDisplayName(event);
 
-  return [
+  const textSummary = [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
     'ประเภทคำขอ: จอง/สอบถามบริการ',
-    `ชื่อไลน์: ${safeValue(lineDisplayName)}`,
+    `ชื่อไลน์ลูกค้า: ${safeValue(lineDisplayName)}`,
     `บริการ: ${safeValue(data.service)}`,
     `แบบ/รายละเอียดที่ต้องการ: ${safeValue(data.style)}`,
     `สถานะแบบอ้างอิง: ${safeValue(data.samplePhoto)}`,
@@ -1312,8 +1309,100 @@ async function buildSummaryForAdmin(event, data) {
     `เวลาที่สะดวก: ${safeValue(data.preferredTime)}`,
     `รายละเอียดเพิ่มเติม: ${safeValue(data.additionalDetails)}`,
     `จำนวนรูปที่แนบ: ${images.length}`,
-    `ลิงก์รูป:\n${imageLines}`,
   ].join('\n');
+
+  const messages = [
+    {
+      type: 'text',
+      text: textSummary,
+    },
+  ];
+
+  if (images.length > 0) {
+    messages.push(buildAdminImageGalleryFlex(images, data));
+  }
+
+  return messages;
+}
+
+function buildAdminImageGalleryFlex(images, data = {}) {
+  const safeImages = Array.isArray(images) ? images.filter((img) => img?.url).slice(0, 10) : [];
+
+  return {
+    type: 'flex',
+    altText: `รูปอ้างอิงจากลูกค้า ${safeValue(data.name || data.service || '')}`.trim(),
+    contents: {
+      type: 'carousel',
+      contents: safeImages.map((img, index) => ({
+        type: 'bubble',
+        size: 'mega',
+        hero: {
+          type: 'image',
+          url: img.url,
+          size: 'full',
+          aspectRatio: '1:1',
+          aspectMode: 'cover',
+          action: {
+            type: 'uri',
+            uri: img.url,
+          },
+        },
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'text',
+              text: `รูปที่ ${index + 1}`,
+              weight: 'bold',
+              size: 'lg',
+              color: '#4E4326',
+            },
+            {
+              type: 'text',
+              text: `บริการ: ${safeValue(data.service)}`,
+              size: 'sm',
+              color: '#6B5E3B',
+              wrap: true,
+            },
+            {
+              type: 'text',
+              text: `ลูกค้า: ${safeValue(data.name)}`,
+              size: 'sm',
+              color: '#6B5E3B',
+              wrap: true,
+            },
+          ],
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              color: '#8B6B3F',
+              action: {
+                type: 'uri',
+                label: 'ดูรูปเต็ม',
+                uri: img.url,
+              },
+            },
+          ],
+        },
+        styles: {
+          body: {
+            backgroundColor: '#F8F1D7',
+          },
+          footer: {
+            backgroundColor: '#F8F1D7',
+          },
+        },
+      })),
+    },
+  };
 }
 
 async function buildRescheduleSummary(event, data) {
@@ -1349,14 +1438,32 @@ async function buildOldCaseSummary(event, originalText) {
   ].join('\n');
 }
 
-async function pushToAdminGroup(text) {
+async function pushToAdminGroup(payload) {
   if (!ADMIN_GROUP_ID) {
     console.warn('ADMIN_GROUP_ID is missing. Skip push to admin group.');
     return;
   }
 
   try {
-    await client.pushMessage(ADMIN_GROUP_ID, [{ type: 'text', text }]);
+    let messages = [];
+
+    if (typeof payload === 'string') {
+      messages = [{ type: 'text', text: payload }];
+    } else if (Array.isArray(payload)) {
+      messages = payload.filter(Boolean);
+    } else if (payload && typeof payload === 'object') {
+      messages = [payload];
+    }
+
+    if (messages.length === 0) {
+      return;
+    }
+
+    const chunkSize = 5;
+    for (let i = 0; i < messages.length; i += chunkSize) {
+      const chunk = messages.slice(i, i + chunkSize);
+      await client.pushMessage(ADMIN_GROUP_ID, chunk);
+    }
   } catch (error) {
     console.error(
       'pushToAdminGroup error:',
