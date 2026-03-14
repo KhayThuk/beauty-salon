@@ -464,14 +464,26 @@ async function handleTextMessage(event) {
   }
 
   if (session.mode === 'idle') {
-    if (isFirstMessage) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
+  if (isFirstMessage && !session.welcomed) {
+
+    session.welcomed = true;
+
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+      welcomed: true
+    });
+
+    await replyMessages(replyToken, [
+      buildWelcomeMessage(),
+      buildServiceQuestion()
+    ]);
+
+    return 'first_welcome';
+  }
 
       if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
         return handleBookingFlow(event, incomingText, userId);
@@ -1507,9 +1519,9 @@ function createDefaultSession() {
     data: {},
     closedAt: null,
     lastSeenAt: Date.now(),
+    welcomed: false
   };
 }
-
 function markConversationClosed(userId) {
   sessions.set(userId, {
     mode: 'closed',
