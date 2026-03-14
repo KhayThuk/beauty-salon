@@ -467,39 +467,12 @@ async function handleTextMessage(event) {
 
   if (session.mode === 'idle') {
 
-  // ถ้าเป็นข้อความแรก ไม่ต้องส่งคำทักทาย
-  if (isFirstMessage) {
-    return 'ignore_first_message';
-  }
+    // ถ้าเป็นข้อความแรก ไม่ต้องส่งคำทักทาย
+    if (isFirstMessage) {
+      return 'ignore_first_message';
+    }
 
-  // เริ่มจองคิวเมื่อพิมพ์ชื่อบริการ
-  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    return handleBookingFlow(event, incomingText, userId);
-  }
-
-  // โหมดสอบถามราคา
-  if (incomingText === 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'priceInquiry',
-      step: 'choosePriceService',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-    return 'start_price_inquiry';
-  }
-
-}
+    // เริ่มจองคิวเมื่อพิมพ์ชื่อบริการ
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'booking',
@@ -508,10 +481,12 @@ async function handleTextMessage(event) {
         closedAt: null,
         lastSeenAt: Date.now(),
       });
+
       return handleBookingFlow(event, incomingText, userId);
     }
 
-    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+    // โหมดสอบถามราคา
+    if (incomingText === 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'priceInquiry',
         step: 'choosePriceService',
@@ -519,23 +494,36 @@ async function handleTextMessage(event) {
         closedAt: null,
         lastSeenAt: Date.now(),
       });
+
       await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-      return 'idle_price_triggered';
+      return 'start_price_inquiry';
     }
 
-    if (isStartTrigger(normalized, incomingText)) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
+  }
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    return handleBookingFlow(event, incomingText, userId);
+  }
 
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'idle_triggered';
-    }
+  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'idle_price_triggered';
+  }
 
+  if (isStartTrigger(normalized, incomingText)) {
     sessions.set(userId, {
       mode: 'booking',
       step: 'service',
@@ -545,22 +533,34 @@ async function handleTextMessage(event) {
     });
 
     await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'idle_fallback_to_menu';
+    return 'idle_triggered';
   }
 
-  if (session.mode === 'booking') {
-    return handleBookingFlow(event, incomingText, userId);
-  }
+  sessions.set(userId, {
+    mode: 'booking',
+    step: 'service',
+    data: {},
+    closedAt: null,
+    lastSeenAt: Date.now(),
+  });
 
-  if (session.mode === 'priceInquiry') {
-    return handlePriceInquiryFlow(event, incomingText, userId);
-  }
+  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+  return 'idle_fallback_to_menu';
+}
 
-  if (session.mode === 'reschedule') {
-    return handleRescheduleFlow(event, incomingText, userId);
-  }
+if (session.mode === 'booking') {
+  return handleBookingFlow(event, incomingText, userId);
+}
 
-  sessions.set(userId, createDefaultSession());
+if (session.mode === 'priceInquiry') {
+  return handlePriceInquiryFlow(event, incomingText, userId);
+}
+
+if (session.mode === 'reschedule') {
+  return handleRescheduleFlow(event, incomingText, userId);
+}
+
+sessions.set(userId, createDefaultSession());
 return 'fallback_reset';
 
 async function handleImageMessage(event) {
@@ -588,70 +588,70 @@ async function handleImageMessage(event) {
   }
 }
 
-  const currentService = session.data?.service;
+const currentService = session.data?.service;
 
-  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
-    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
-    return 'image_unexpected_booking';
-  }
-
-  try {
-    const saved = await saveIncomingImage(event.message.id);
-
-    if (!session.data.images) session.data.images = [];
-    session.data.images.push(saved);
-
-    if (session.step === 'tattooNeedPhoto') {
-      session.step = 'tattooChooseDesign';
-
-      await replyText(
-        replyToken,
-        'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
-      );
-      return 'tattoo_first_image_saved';
-    }
-
-    if (session.step === 'tattooChooseDesign') {
-      await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
-      return 'tattoo_extra_image_saved';
-    }
-
-    if (session.step === 'style') {
-  session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-  session.step = 'preferredStaff';
-
-  await replyText(
-    replyToken,
-    'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
-  );
-  return 'reference_style_image_saved';
+if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
+  await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
+  return 'image_unexpected_booking';
 }
 
-if (session.step === 'samplePhoto') {
-      session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
-      session.step = 'preferredStaff';
+try {
+  const saved = await saveIncomingImage(event.message.id);
 
-      await replyText(
-        replyToken,
-        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ เจ้าช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
-      );
+  if (!session.data.images) session.data.images = [];
+  session.data.images.push(saved);
 
-      return 'sample_photo_saved';
-    }
-
-    return 'image_saved';
-
-  } catch (error) {
-
-    console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error));
+  if (session.step === 'tattooNeedPhoto') {
+    session.step = 'tattooChooseDesign';
 
     await replyText(
       replyToken,
-      'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
+      'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
+    );
+    return 'tattoo_first_image_saved';
+  }
+
+  if (session.step === 'tattooChooseDesign') {
+    await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
+    return 'tattoo_extra_image_saved';
+  }
+
+  if (session.step === 'style') {
+    session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+    session.step = 'preferredStaff';
+
+    await replyText(
+      replyToken,
+      'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+    );
+    return 'reference_style_image_saved';
+  }
+
+  if (session.step === 'samplePhoto') {
+    session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
+    session.step = 'preferredStaff';
+
+    await replyText(
+      replyToken,
+      'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ เจ้าช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
     );
 
-    return 'image_save_failed';
+    return 'sample_photo_saved';
   }
+
+  return 'image_saved';
+
+} catch (error) {
+
+  console.error('handleImageMessage error:', JSON.stringify(error?.originalError?.response?.data || error));
+
+  await replyText(
+    replyToken,
+    'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
+  );
+
+  return 'image_save_failed';
+}
 
 
 async function handleBookingFlow(event, text, userId) {
@@ -666,7 +666,10 @@ async function handleBookingFlow(event, text, userId) {
         session.mode = 'priceInquiry';
         session.step = 'choosePriceService';
         session.data = {};
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        await replyMessages(
+  replyToken,
+  [buildWelcomeMessage(), buildServiceQuestion()]
+);
         return 'service_to_price_inquiry';
       }
 
