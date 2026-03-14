@@ -466,35 +466,40 @@ async function handleTextMessage(event) {
   }
 
   if (session.mode === 'idle') {
-    if (isFirstMessage) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
 
-      if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-        return handleBookingFlow(event, incomingText, userId);
-      }
+  // ถ้าเป็นข้อความแรก ไม่ต้องส่งคำทักทาย
+  if (isFirstMessage) {
+    return 'ignore_first_message';
+  }
 
-      if (incomingText === 'สอบถามราคา') {
-        sessions.set(userId, {
-          mode: 'priceInquiry',
-          step: 'choosePriceService',
-          data: {},
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-        return 'first_price_inquiry';
-      }
+  // เริ่มจองคิวเมื่อพิมพ์ชื่อบริการ
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
 
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'first_welcome';
-    }
+    return handleBookingFlow(event, incomingText, userId);
+  }
 
+  // โหมดสอบถามราคา
+  if (incomingText === 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'start_price_inquiry';
+  }
+
+}
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
       sessions.set(userId, {
         mode: 'booking',
@@ -640,7 +645,6 @@ async function handleImageMessage(event) {
     await replyText(replyToken, 'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ');
     return 'image_save_failed';
   }
-}
 
 async function handleBookingFlow(event, text, userId) {
   const session = sessions.get(userId);
