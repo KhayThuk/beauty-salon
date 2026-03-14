@@ -463,7 +463,8 @@ async function handleTextMessage(event) {
     return 'start_price_inquiry';
   }
 
-  if (session.mode === 'idle') {
+ if (session.mode === 'idle') {
+
   if (isFirstMessage && !session.welcomed) {
 
     session.welcomed = true;
@@ -485,25 +486,25 @@ async function handleTextMessage(event) {
     return 'first_welcome';
   }
 
-      if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-        return handleBookingFlow(event, incomingText, userId);
-      }
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+    return handleBookingFlow(event, incomingText, userId);
+  }
 
-      if (incomingText === 'สอบถามราคา') {
-        sessions.set(userId, {
-          mode: 'priceInquiry',
-          step: 'choosePriceService',
-          data: {},
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-        return 'first_price_inquiry';
-      }
+  if (incomingText === 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'first_price_inquiry';
+  }
 
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'first_welcome';
-    }
+  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+  return 'first_welcome';
+}
 
     if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
       sessions.set(userId, {
@@ -567,7 +568,6 @@ async function handleTextMessage(event) {
 
   sessions.set(userId, createDefaultSession());
   return 'fallback_reset';
-}
 
 async function handleImageMessage(event) {
   const userId = event.source.userId;
