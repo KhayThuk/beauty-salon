@@ -554,8 +554,7 @@ async function handleTextMessage(event) {
   }
 
   sessions.set(userId, createDefaultSession());
-  return 'fallback_reset';
-}
+return 'fallback_reset';
 
 async function handleImageMessage(event) {
   const userId = event.source.userId;
@@ -574,9 +573,13 @@ async function handleImageMessage(event) {
   session.lastSeenAt = Date.now();
 
   if (session.mode !== 'booking') {
-    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ');
+    await replyText(
+      replyToken,
+      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ'
+    );
     return 'image_outside_booking';
   }
+}
 
   const currentService = session.data?.service;
 
