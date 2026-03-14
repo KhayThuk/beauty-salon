@@ -1335,7 +1335,7 @@ function buildAdminImageGalleryFlex(images, data = {}) {
       type: 'carousel',
       contents: safeImages.map((img, index) => ({
         type: 'bubble',
-        size: 'mega',
+        size: 'kilo',
         hero: {
           type: 'image',
           url: img.url,
@@ -1350,39 +1350,39 @@ function buildAdminImageGalleryFlex(images, data = {}) {
         body: {
           type: 'box',
           layout: 'vertical',
-          spacing: 'sm',
+          spacing: 'xs',
+          paddingAll: '10px',
           contents: [
             {
               type: 'text',
               text: `รูปที่ ${index + 1}`,
               weight: 'bold',
-              size: 'lg',
+              size: 'md',
               color: '#4E4326',
             },
             {
               type: 'text',
-              text: `บริการ: ${safeValue(data.service)}`,
-              size: 'sm',
-              color: '#6B5E3B',
-              wrap: true,
-            },
-            {
-              type: 'text',
               text: `ลูกค้า: ${safeValue(data.name)}`,
-              size: 'sm',
+              size: 'xs',
               color: '#6B5E3B',
               wrap: true,
+              margin: 'sm',
             },
           ],
         },
         footer: {
           type: 'box',
           layout: 'vertical',
-          spacing: 'sm',
+          spacing: 'xs',
+          paddingTop: '0px',
+          paddingBottom: '10px',
+          paddingStart: '10px',
+          paddingEnd: '10px',
           contents: [
             {
               type: 'button',
               style: 'primary',
+              height: 'sm',
               color: '#8B6B3F',
               action: {
                 type: 'uri',
