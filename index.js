@@ -179,8 +179,35 @@ async function handleTextMessage(event) {
     isFirstMessage = true;
   }
 
-  const session = sessions.get(userId);
+  let session = sessions.get(userId);
   session.lastSeenAt = Date.now();
+
+  if (session.mode === 'closed') {
+    const passed = Date.now() - (session.closedAt || 0);
+
+    if (passed >= CLOSED_WINDOW_MS) {
+      sessions.set(userId, {
+        mode: 'reopenMenu',
+        step: 'chooseAction',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      await replyMessages(replyToken, [buildReopenMenuMessage()]);
+      return 'reopen_menu_after_24h';
+    }
+
+    if (!isStartTrigger(normalized, incomingText)) {
+      return 'closed_ignore';
+    }
+  }
+
+  const globalAction = await handleGlobalCommands(event, userId, incomingText, normalized, isFirstMessage);
+  if (globalAction) {
+    return globalAction;
+  }
+
+  session = sessions.get(userId);
 
   if (session.mode === 'booking') {
     return handleBookingFlow(event, incomingText, userId);
@@ -194,309 +221,13 @@ async function handleTextMessage(event) {
     return handleRescheduleFlow(event, incomingText, userId);
   }
 
-  if (session.mode === 'closed') {
-    const passed = Date.now() - (session.closedAt || 0);
-
-    if (passed >= CLOSED_WINDOW_MS) {
-      sessions.set(userId, createDefaultSession());
-      const freshSession = sessions.get(userId);
-      freshSession.mode = 'reopenMenu';
-      freshSession.step = 'chooseAction';
-
-      await replyMessages(replyToken, [buildReopenMenuMessage()]);
-      return 'reopen_menu_after_24h';
-    }
-
-    if (isStartTrigger(normalized, incomingText)) {
-      sessions.set(userId, createDefaultSession());
-      const freshSession = sessions.get(userId);
-
-      if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
-        await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
-        markConversationClosed(userId);
-        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
-        return 'closed_old_case_trigger';
-      }
-
-      if (RESCHEDULE_KEYWORDS.includes(normalized)) {
-        sessions.set(userId, {
-          mode: 'reschedule',
-          step: 'nameOrPhone',
-          data: { requestType: 'เปลี่ยนวันนัด' },
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-
-        await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
-        return 'closed_restart_reschedule';
-      }
-
-      if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
-        await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
-        markConversationClosed(userId);
-        await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
-        return 'closed_contact_admin';
-      }
-
-      if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
-        await replyMessages(replyToken, [buildLocationMessage()]);
-        return 'closed_location';
-      }
-
-      if (
-        EXTRA_BOOKING_KEYWORDS.includes(incomingText) ||
-        EXTRA_BOOKING_KEYWORDS.includes(normalized) ||
-        incomingText === 'จองคิว'
-      ) {
-        freshSession.mode = 'booking';
-        freshSession.step = 'service';
-        freshSession.data = {};
-        await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
-        return 'closed_extra_booking';
-      }
-
-      if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-        freshSession.mode = 'priceInquiry';
-        freshSession.step = 'choosePriceService';
-        freshSession.data = {};
-        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-        return 'closed_price_inquiry';
-      }
-
-      freshSession.mode = 'booking';
-      freshSession.step = 'service';
-      freshSession.data = {};
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'closed_restart_general';
-    }
-
-    return 'closed_ignore';
+  if (session.mode === 'postPriceAction') {
+    return handlePostPriceAction(event, incomingText, userId);
   }
 
   if (session.mode === 'reopenMenu') {
-    if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
-      await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
-      markConversationClosed(userId);
-      await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
-      return 'reopen_old_case';
-    }
-
-    if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
-      return 'reopen_extra_booking';
-    }
-
-    if (RESCHEDULE_KEYWORDS.includes(normalized)) {
-      sessions.set(userId, {
-        mode: 'reschedule',
-        step: 'nameOrPhone',
-        data: { requestType: 'เปลี่ยนวันนัด' },
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-
-      await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
-      return 'reopen_reschedule';
-    }
-
-    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-      sessions.set(userId, {
-        mode: 'priceInquiry',
-        step: 'choosePriceService',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-      return 'reopen_price_inquiry';
-    }
-
-    if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
-      await replyMessages(replyToken, [buildLocationMessage()]);
-      return 'reopen_location';
-    }
-
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
     await replyMessages(replyToken, [buildReopenMenuMessage()]);
     return 'reopen_menu_repeat';
-  }
-
-  if (session.mode === 'postPriceAction') {
-    const rememberedService = session.data?.priceService;
-
-    if (POST_PRICE_BOOKING_KEYWORDS.includes(incomingText) || POST_PRICE_BOOKING_KEYWORDS.includes(normalized)) {
-      if (!rememberedService) {
-        sessions.set(userId, {
-          mode: 'booking',
-          step: 'service',
-          data: {},
-          closedAt: null,
-          lastSeenAt: Date.now(),
-        });
-        await replyText(replyToken, 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
-        return 'post_price_booking_without_memory';
-      }
-
-      startBookingFromKnownService(userId, rememberedService);
-
-      if (rememberedService === 'สักลาย') {
-        await replyMessages(replyToken, buildTattooIntroMessages());
-        return 'post_price_booking_tattoo';
-      }
-
-      await replyMessages(replyToken, buildServiceIntroMessages(rememberedService));
-      return 'post_price_booking_known_service';
-    }
-
-    if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
-      await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
-      markConversationClosed(userId);
-      await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
-      return 'post_price_contact_admin';
-    }
-
-    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-      sessions.set(userId, {
-        mode: 'priceInquiry',
-        step: 'choosePriceService',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-      return 'post_price_to_price_again';
-    }
-
-    if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
-      await replyMessages(replyToken, [buildLocationMessage()]);
-      return 'post_price_location';
-    }
-
-    if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      return handleBookingFlow(event, incomingText, userId);
-    }
-
-    if (RESTART_KEYWORDS.includes(normalized)) {
-      sessions.set(userId, {
-        mode: 'booking',
-        step: 'service',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-      return 'post_price_restart';
-    }
-
-    await replyMessages(replyToken, [
-      {
-        type: 'text',
-        text: rememberedService
-          ? `หากต้องการจองคิวบริการ ${rememberedService} สามารถกด “จองคิวบริการนี้” ได้เลยค่ะ`
-          : 'หากต้องการดำเนินการต่อ สามารถเลือกเมนูด้านล่างได้เลยค่ะ',
-        quickReply: {
-          items: [
-            quickReplyText('จองคิวบริการนี้'),
-            quickReplyText('สอบถามราคา'),
-            quickReplyText('พิกัดร้าน'),
-            quickReplyText('ติดต่อแอดมิน'),
-            quickReplyText('เมนู'),
-          ],
-        },
-      },
-    ]);
-    return 'post_price_repeat_options';
-  }
-
-  if (RESTART_KEYWORDS.includes(normalized)) {
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'restarted';
-  }
-
-  if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
-    await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
-    markConversationClosed(userId);
-    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ');
-    return 'contact_admin';
-  }
-
-  if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
-    await replyMessages(replyToken, [buildLocationMessage()]);
-    return 'send_location';
-  }
-
-  if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
-    await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
-    markConversationClosed(userId);
-    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
-    return 'old_case';
-  }
-
-  if (RESCHEDULE_KEYWORDS.includes(normalized)) {
-    sessions.set(userId, {
-      mode: 'reschedule',
-      step: 'nameOrPhone',
-      data: { requestType: 'เปลี่ยนวันนัด' },
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
-    return 'start_reschedule';
-  }
-
-  if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
-    sessions.set(userId, {
-      mode: 'booking',
-      step: 'service',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
-    return 'start_extra_booking';
-  }
-
-  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'priceInquiry',
-      step: 'choosePriceService',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-
-    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-    return 'start_price_inquiry';
   }
 
   if (session.mode === 'idle') {
@@ -512,22 +243,103 @@ async function handleTextMessage(event) {
         closedAt: null,
         lastSeenAt: Date.now(),
       });
-
       return handleBookingFlow(event, incomingText, userId);
     }
+  }
 
-    if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-      sessions.set(userId, {
-        mode: 'priceInquiry',
-        step: 'choosePriceService',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
+  sessions.set(userId, {
+    mode: 'booking',
+    step: 'service',
+    data: {},
+    closedAt: null,
+    lastSeenAt: Date.now(),
+  });
 
-      await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-      return 'start_price_inquiry';
-    }
+  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+  return 'idle_fallback_to_menu';
+}
+
+async function handleGlobalCommands(event, userId, incomingText, normalized, isFirstMessage) {
+  const replyToken = event.replyToken;
+  const session = sessions.get(userId);
+
+  if (RESTART_KEYWORDS.includes(normalized)) {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
+    return 'global_restart';
+  }
+
+  if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
+    await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
+    markConversationClosed(userId);
+    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ');
+    return 'global_contact_admin';
+  }
+
+  if (LOCATION_KEYWORDS.includes(normalized) || incomingText === 'พิกัดร้าน') {
+    await replyMessages(replyToken, [buildLocationMessage()]);
+    return 'global_location';
+  }
+
+  if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
+    await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
+    markConversationClosed(userId);
+    await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
+    return 'global_old_case';
+  }
+
+  if (RESCHEDULE_KEYWORDS.includes(normalized)) {
+    sessions.set(userId, {
+      mode: 'reschedule',
+      step: 'nameOrPhone',
+      data: { requestType: 'เปลี่ยนวันนัด' },
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyText(replyToken, 'ได้เลยค่ะ กรุณาแจ้งชื่อหรือเบอร์โทรที่ใช้จองไว้ เพื่อให้ทางร้านตรวจสอบข้อมูลให้ค่ะ');
+    return 'global_reschedule';
+  }
+
+  if (EXTRA_BOOKING_KEYWORDS.includes(incomingText) || EXTRA_BOOKING_KEYWORDS.includes(normalized)) {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyText(replyToken, 'ต้องการจองคิวเพิ่มเติมสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+    return 'global_extra_booking';
+  }
+
+  if (incomingText === 'จองคิว') {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildServiceQuestion()]);
+    return 'global_booking';
+  }
+
+  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา' || normalized === 'สอบถามข้อมูล') {
+    sessions.set(userId, {
+      mode: 'priceInquiry',
+      step: 'choosePriceService',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+    return 'global_price_inquiry';
   }
 
   if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
@@ -541,19 +353,44 @@ async function handleTextMessage(event) {
     return handleBookingFlow(event, incomingText, userId);
   }
 
-  if (incomingText === 'สอบถามราคา' || normalized === 'สอบถามราคา') {
-    sessions.set(userId, {
-      mode: 'priceInquiry',
-      step: 'choosePriceService',
-      data: {},
-      closedAt: null,
-      lastSeenAt: Date.now(),
-    });
-    await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
-    return 'idle_price_triggered';
+  if (session.mode === 'idle' && isFirstMessage && !isStartTrigger(normalized, incomingText)) {
+    return 'ignore_first_message';
   }
 
-  if (isStartTrigger(normalized, incomingText)) {
+  return null;
+}
+
+async function handlePostPriceAction(event, incomingText, userId) {
+  const session = sessions.get(userId);
+  const replyToken = event.replyToken;
+  const normalized = normalizeText(incomingText);
+  const rememberedService = session.data?.priceService;
+
+  if (POST_PRICE_BOOKING_KEYWORDS.includes(incomingText) || POST_PRICE_BOOKING_KEYWORDS.includes(normalized)) {
+    if (!rememberedService) {
+      sessions.set(userId, {
+        mode: 'booking',
+        step: 'service',
+        data: {},
+        closedAt: null,
+        lastSeenAt: Date.now(),
+      });
+      await replyText(replyToken, 'ต้องการจองคิวสำหรับบริการไหนคะ กรุณาระบุบริการที่ต้องการได้เลยค่ะ');
+      return 'post_price_booking_without_memory';
+    }
+
+    startBookingFromKnownService(userId, rememberedService);
+
+    if (rememberedService === 'สักลาย') {
+      await replyMessages(replyToken, buildTattooIntroMessages());
+      return 'post_price_booking_tattoo';
+    }
+
+    await replyMessages(replyToken, buildServiceIntroMessages(rememberedService));
+    return 'post_price_booking_known_service';
+  }
+
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
     sessions.set(userId, {
       mode: 'booking',
       step: 'service',
@@ -561,21 +398,27 @@ async function handleTextMessage(event) {
       closedAt: null,
       lastSeenAt: Date.now(),
     });
-
-    await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-    return 'idle_triggered';
+    return handleBookingFlow(event, incomingText, userId);
   }
 
-  sessions.set(userId, {
-    mode: 'booking',
-    step: 'service',
-    data: {},
-    closedAt: null,
-    lastSeenAt: Date.now(),
-  });
-
-  await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
-  return 'idle_fallback_to_menu';
+  await replyMessages(replyToken, [
+    {
+      type: 'text',
+      text: rememberedService
+        ? `หากต้องการจองคิวบริการ ${rememberedService} สามารถกด “จองคิวบริการนี้” ได้เลยค่ะ`
+        : 'หากต้องการดำเนินการต่อ สามารถเลือกเมนูด้านล่างได้เลยค่ะ',
+      quickReply: {
+        items: [
+          quickReplyText('จองคิวบริการนี้'),
+          quickReplyText('สอบถามราคา'),
+          quickReplyText('พิกัดร้าน'),
+          quickReplyText('ติดต่อแอดมิน'),
+          quickReplyText('เมนู'),
+        ],
+      },
+    },
+  ]);
+  return 'post_price_repeat_options';
 }
 
 async function handleImageMessage(event) {
@@ -615,7 +458,6 @@ async function handleImageMessage(event) {
 
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
-
       await replyText(
         replyToken,
         'ได้รับรูปเรียบร้อยแล้วค่ะ\nสามารถส่งรูปแบบลายที่ต้องการมาเพิ่มได้ หรือพิมพ์รายละเอียดลาย / ตำแหน่ง / ขนาดที่ต้องการได้เลยนะคะ'
@@ -631,10 +473,9 @@ async function handleImageMessage(event) {
     if (session.step === 'style') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
       session.step = 'preferredStaff';
-
       await replyText(
         replyToken,
-        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างเเพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
       );
       return 'reference_style_image_saved';
     }
@@ -642,7 +483,6 @@ async function handleImageMessage(event) {
     if (session.step === 'samplePhoto') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
       session.step = 'preferredStaff';
-
       await replyText(
         replyToken,
         'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nช่างแพรวเป็นผู้ให้บริการนะคะ หากตกลงพิมพ์ "โอเค" ได้เลยค่ะ'
@@ -749,7 +589,7 @@ async function handleBookingFlow(event, text, userId) {
       if (PRESELECT_REFERENCE_SERVICES.includes(session.data.service)) {
         session.data.samplePhoto = session.data.samplePhoto || 'ลูกค้าเลือกแบบ/แจ้งรายละเอียดแล้ว';
         session.step = 'preferredStaff';
-        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
+        await replyText(replyToken, 'ช่างแพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
         return 'ask_staff_skip_sample_photo_for_reference_service';
       }
 
@@ -761,7 +601,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'samplePhoto':
       session.data.samplePhoto = text;
       session.step = 'preferredStaff';
-      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
+      await replyText(replyToken, 'ช่างแพรวเป็นผู้ให้บริการนะคะ ตกลงพิมพ์ "โอเค" ได้เลยค่ะ');
       return 'ask_staff';
 
     case 'preferredStaff':
@@ -821,11 +661,8 @@ async function handlePriceInquiryFlow(event, text, userId) {
       const selectedService = normalizePriceService(text);
 
       if (!selectedService) {
-        await replyMessages(replyToken, [
-          buildPriceInquiryMenuMessage(),
-          { type: 'text', text: 'กรุณาเลือกบริการที่ต้องการสอบถามราคาจากเมนูได้เลยค่ะ' },
-        ]);
-        return 'price_choose_invalid';
+        await replyMessages(replyToken, [buildPriceInquiryMenuMessage()]);
+        return 'price_choose_repeat_menu';
       }
 
       session.data.priceService = selectedService;
@@ -1050,7 +887,7 @@ function startBookingFromKnownService(userId, service) {
     step: service === 'สักลาย' ? 'tattooNeedPhoto' : 'style',
     data: {
       service,
-      images: service === 'สักลาย' ? [] : [],
+      images: [],
     },
     closedAt: null,
     lastSeenAt: Date.now(),
