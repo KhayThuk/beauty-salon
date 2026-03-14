@@ -3,6 +3,8 @@ const line = require('@line/bot-sdk');
 const { v2: cloudinary } = require('cloudinary');
 
 const app = express();
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+app.get('/favicon.png', (req, res) => res.status(204).end());
 const port = process.env.PORT || 3000;
 
 const config = {
