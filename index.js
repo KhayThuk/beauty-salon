@@ -276,7 +276,8 @@ async function handleGlobalCommands(event, userId, incomingText, normalized, isF
   }
 
   if (CONTACT_ADMIN_KEYWORDS.includes(normalized)) {
-    await pushToAdminGroup(buildContactAdminSummary(event, incomingText));
+    const adminSummary = await buildContactAdminSummary(event, incomingText);
+    await pushToAdminGroup(adminSummary);
     markConversationClosed(userId);
     await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุด หากต้องการฝากรายละเอียดเพิ่มเติม สามารถพิมพ์ส่งมาได้เลยนะคะ');
     return 'global_contact_admin';
@@ -288,7 +289,8 @@ async function handleGlobalCommands(event, userId, incomingText, normalized, isF
   }
 
   if (OLD_CASE_KEYWORDS.includes(incomingText) || OLD_CASE_KEYWORDS.includes(normalized)) {
-    await pushToAdminGroup(buildOldCaseSummary(event, incomingText));
+    const oldCaseSummary = await buildOldCaseSummary(event, incomingText);
+    await pushToAdminGroup(oldCaseSummary);
     markConversationClosed(userId);
     await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
     return 'global_old_case';
@@ -527,14 +529,16 @@ async function handleBookingFlow(event, text, userId) {
       }
 
       if (text === 'ติดต่อแอดมิน') {
-        await pushToAdminGroup(buildContactAdminSummary(event, text));
+        const adminSummary = await buildContactAdminSummary(event, text);
+        await pushToAdminGroup(adminSummary);
         markConversationClosed(userId);
         await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะติดต่อกลับเร็วที่สุดนะคะ');
         return 'service_contact_admin';
       }
 
       if (text === 'คุยกับพนักงาน/เช็กคิวเดิม') {
-        await pushToAdminGroup(buildOldCaseSummary(event, text));
+        const oldCaseSummary = await buildOldCaseSummary(event, text);
+        await pushToAdminGroup(oldCaseSummary);
         markConversationClosed(userId);
         await replyText(replyToken, 'รับเรื่องเรียบร้อยแล้วค่ะ ทางร้านจะตรวจสอบคิวเดิมหรือให้พนักงานติดต่อกลับอีกครั้งนะคะ');
         return 'service_old_case';
@@ -628,7 +632,7 @@ async function handleBookingFlow(event, text, userId) {
 
     case 'additionalDetails': {
       session.data.additionalDetails = text;
-      const adminSummary = buildSummaryForAdmin(event, session.data);
+      const adminSummary = await buildSummaryForAdmin(event, session.data);
 
       await pushToAdminGroup(adminSummary);
       markConversationClosed(userId);
@@ -715,7 +719,7 @@ async function handleRescheduleFlow(event, text, userId) {
 
     case 'newTime': {
       session.data.newTime = text;
-      const adminSummary = buildRescheduleSummary(event, session.data);
+      const adminSummary = await buildRescheduleSummary(event, session.data);
       await pushToAdminGroup(adminSummary);
       markConversationClosed(userId);
 
@@ -920,7 +924,7 @@ function getSamplePriceData(service) {
       details: 'ขึ้นอยู่กับสูตรที่เลือกและสภาพเส้นผม',
     },
     'สักลาย': {
-      price: 'เริ่มต้น 800 บาท',
+      price: 'เริ่มต้น 500 บาท',
       details: 'ขึ้นอยู่กับขนาด ตำแหน่ง และความละเอียดของลาย',
     },
   };
@@ -1255,16 +1259,49 @@ function buildDetailQuestion(service) {
   return map[service] || 'รบกวนแจ้งรายละเอียดบริการที่ต้องการได้เลยค่ะ';
 }
 
-function buildSummaryForAdmin(event, data) {
-  const source = event.source || {};
+async function getLineDisplayName(event) {
+  try {
+    const source = event.source || {};
+    const userId = source.userId;
+
+    if (!userId) return '-';
+
+    if (source.type === 'user') {
+      const profile = await client.getProfile(userId);
+      return profile?.displayName || '-';
+    }
+
+    if (source.type === 'group' && source.groupId) {
+      const profile = await client.getGroupMemberProfile(source.groupId, userId);
+      return profile?.displayName || '-';
+    }
+
+    if (source.type === 'room' && source.roomId) {
+      const profile = await client.getRoomMemberProfile(source.roomId, userId);
+      return profile?.displayName || '-';
+    }
+
+    return '-';
+  } catch (error) {
+    console.error(
+      'getLineDisplayName error:',
+      JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
+    );
+    return '-';
+  }
+}
+
+async function buildSummaryForAdmin(event, data) {
   const images = data.images || [];
   const imageLines = images.length
     ? images.map((img, index) => `รูปที่ ${index + 1}: ${img.url}`).join('\n')
     : '-';
+  const lineDisplayName = await getLineDisplayName(event);
 
   return [
     '📌 มีลูกค้าส่งข้อมูลเข้ามาใหม่',
     'ประเภทคำขอ: จอง/สอบถามบริการ',
+    `ชื่อไลน์: ${safeValue(lineDisplayName)}`,
     `บริการ: ${safeValue(data.service)}`,
     `แบบ/รายละเอียดที่ต้องการ: ${safeValue(data.style)}`,
     `สถานะแบบอ้างอิง: ${safeValue(data.samplePhoto)}`,
@@ -1276,41 +1313,39 @@ function buildSummaryForAdmin(event, data) {
     `รายละเอียดเพิ่มเติม: ${safeValue(data.additionalDetails)}`,
     `จำนวนรูปที่แนบ: ${images.length}`,
     `ลิงก์รูป:\n${imageLines}`,
-    `LINE userId: ${safeValue(source.userId)}`,
-    `source type: ${safeValue(source.type)}`,
   ].join('\n');
 }
 
-function buildRescheduleSummary(event, data) {
-  const source = event.source || {};
+async function buildRescheduleSummary(event, data) {
+  const lineDisplayName = await getLineDisplayName(event);
+
   return [
     '📌 มีคำขอเปลี่ยนวันนัดจากลูกค้า',
     'ประเภทคำขอ: เปลี่ยนวันนัด',
+    `ชื่อไลน์: ${safeValue(lineDisplayName)}`,
     `ชื่อหรือเบอร์โทรที่ใช้จอง: ${safeValue(data.nameOrPhone)}`,
     `วันที่ใหม่: ${safeValue(data.newDate)}`,
     `เวลาที่สะดวก: ${safeValue(data.newTime)}`,
-    `LINE userId: ${safeValue(source.userId)}`,
-    `source type: ${safeValue(source.type)}`,
   ].join('\n');
 }
 
-function buildContactAdminSummary(event, originalText) {
-  const source = event.source || {};
+async function buildContactAdminSummary(event, originalText) {
+  const lineDisplayName = await getLineDisplayName(event);
+
   return [
     '📌 มีลูกค้าต้องการติดต่อแอดมิน',
+    `ชื่อไลน์: ${safeValue(lineDisplayName)}`,
     `ข้อความจากลูกค้า: ${safeValue(originalText)}`,
-    `LINE userId: ${safeValue(source.userId)}`,
-    `source type: ${safeValue(source.type)}`,
   ].join('\n');
 }
 
-function buildOldCaseSummary(event, originalText) {
-  const source = event.source || {};
+async function buildOldCaseSummary(event, originalText) {
+  const lineDisplayName = await getLineDisplayName(event);
+
   return [
     '📌 มีลูกค้าต้องการคุยกับพนักงาน / เช็กคิวเดิม',
+    `ชื่อไลน์: ${safeValue(lineDisplayName)}`,
     `ข้อความจากลูกค้า: ${safeValue(originalText)}`,
-    `LINE userId: ${safeValue(source.userId)}`,
-    `source type: ${safeValue(source.type)}`,
   ].join('\n');
 }
 
