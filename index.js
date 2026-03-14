@@ -612,7 +612,7 @@ async function handleImageMessage(event) {
 
       await replyText(
         replyToken,
-        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ'
+        'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ'
       );
       return 'reference_style_image_saved_skip_sample_photo';
     }
@@ -620,7 +620,7 @@ async function handleImageMessage(event) {
     if (session.step === 'samplePhoto') {
       session.data.samplePhoto = 'มีรูปตัวอย่างแล้ว';
       session.step = 'preferredStaff';
-      await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ\nต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
+      await replyText(replyToken, 'ได้รับรูปตัวอย่างเรียบร้อยแล้วค่ะ');
       return 'sample_photo_saved';
     }
 
@@ -715,7 +715,7 @@ async function handleBookingFlow(event, text, userId) {
       if (PRESELECT_REFERENCE_SERVICES.includes(session.data.service)) {
         session.data.samplePhoto = session.data.samplePhoto || 'ลูกค้าเลือกแบบ/แจ้งรายละเอียดแล้ว';
         session.step = 'preferredStaff';
-        await replyText(replyToken, 'ต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
+        await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเคค ครับ/ค่ะ ได้เลยค่ะ');
         return 'ask_staff_skip_sample_photo_for_reference_service';
       }
 
@@ -727,7 +727,7 @@ async function handleBookingFlow(event, text, userId) {
     case 'samplePhoto':
       session.data.samplePhoto = text;
       session.step = 'preferredStaff';
-      await replyText(replyToken, 'ต้องการช่างคนไหนเป็นพิเศษไหมคะ ถ้าไม่มีสามารถพิมพ์ว่า “ได้ทุกท่าน” ได้เลยค่ะ');
+      await replyText(replyToken, 'ช่างเเพรวเป็นผู้ให้บริการนะคะ ตกลง พิมพ์ โอเคค ครับ/ค่ะ ได้เลยค่ะ');
       return 'ask_staff';
 
     case 'preferredStaff':
