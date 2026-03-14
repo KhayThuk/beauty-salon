@@ -423,10 +423,8 @@ async function handlePostPriceAction(event, incomingText, userId) {
 
 async function handleImageMessage(event) {
   const userId = event.source?.userId;
-  const replyToken = event.replyToken;
 
   if (!userId) {
-    await replyText(replyToken, 'ขออภัยค่ะ ระบบไม่สามารถระบุผู้ใช้งานได้ในขณะนี้');
     return null;
   }
 
@@ -437,17 +435,12 @@ async function handleImageMessage(event) {
   const session = sessions.get(userId);
   session.lastSeenAt = Date.now();
 
-  if (session.mode !== 'booking') {
-    await replyText(
-      replyToken,
-      'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการเริ่มจองคิว กรุณาพิมพ์ “เมนู” หรือเลือกบริการที่ต้องการได้เลยนะคะ'
-    );
-    return 'image_outside_booking';
-  }
+  const canAcceptImage =
+    session.mode === 'booking' &&
+    ['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step);
 
-  if (!['tattooNeedPhoto', 'tattooChooseDesign', 'style', 'samplePhoto'].includes(session.step)) {
-    await replyText(replyToken, 'ได้รับรูปเรียบร้อยแล้วค่ะ\nหากต้องการแนบรูปประกอบเพิ่มเติม รบกวนแจ้งรายละเอียดต่อได้เลยนะคะ');
-    return 'image_unexpected_booking';
+  if (!canAcceptImage) {
+    return 'image_ignored';
   }
 
   try {
@@ -455,6 +448,8 @@ async function handleImageMessage(event) {
 
     if (!session.data.images) session.data.images = [];
     session.data.images.push(saved);
+
+    const replyToken = event.replyToken;
 
     if (session.step === 'tattooNeedPhoto') {
       session.step = 'tattooChooseDesign';
@@ -466,7 +461,10 @@ async function handleImageMessage(event) {
     }
 
     if (session.step === 'tattooChooseDesign') {
-      await replyText(replyToken, 'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ');
+      await replyText(
+        replyToken,
+        'ได้รับรูปเพิ่มเติมเรียบร้อยแล้วค่ะ\nรบกวนพิมพ์ลายที่ต้องการ ตำแหน่งที่จะสัก และขนาดโดยประมาณได้เลยนะคะ'
+      );
       return 'tattoo_extra_image_saved';
     }
 
@@ -496,12 +494,6 @@ async function handleImageMessage(event) {
       'handleImageMessage error:',
       JSON.stringify(error?.originalError?.response?.data || error?.body || error?.message || error, null, 2)
     );
-
-    await replyText(
-      replyToken,
-      'ขออภัยค่ะ ระบบบันทึกรูปไม่สำเร็จ รบกวนส่งรูปอีกครั้งได้เลยนะคะ'
-    );
-
     return 'image_save_failed';
   }
 }
