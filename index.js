@@ -105,6 +105,8 @@ const SERVICE_REFERENCE_LINKS = {
 
 const PRESELECT_REFERENCE_SERVICES = ['ตัดผมชาย', 'ทำเล็บ', 'ต่อเล็บ', 'ดัดผม'];
 
+// --- ฟังก์ชันและ flow ต่าง ๆ เหมือนเดิมทั้งหมด ---
+
 app.get('/', (req, res) => {
   res.status(200).json({
     ok: true,
