@@ -414,9 +414,9 @@ async function handlePostPriceAction(event, incomingText, userId) {
       quickReply: {
         items: [
           quickReplyText('จองคิวบริการนี้'),
+          quickReplyText('ติดต่อแอดมิน'),
           quickReplyText('สอบถามราคา'),
           quickReplyText('พิกัดร้าน'),
-          quickReplyText('ติดต่อแอดมิน'),
           quickReplyText('เมนู'),
         ],
       },
@@ -673,9 +673,9 @@ async function handlePriceInquiryFlow(event, text, userId) {
           quickReply: {
             items: [
               quickReplyText('จองคิวบริการนี้'),
+              quickReplyText('ติดต่อแอดมิน'),
               quickReplyText('สอบถามราคา'),
               quickReplyText('พิกัดร้าน'),
-              quickReplyText('ติดต่อแอดมิน'),
               quickReplyText('เมนู'),
             ],
           },
@@ -768,9 +768,9 @@ function buildServiceQuestion() {
         quickReplyText('สระ/ไดร์'),
         quickReplyText('ทรีตเมนต์'),
         quickReplyText('สักลาย'),
+         quickReplyText('ติดต่อแอดมิน'),
         quickReplyText('สอบถามราคา'),
         quickReplyText('เปลี่ยนวันนัด'),
-        quickReplyText('ติดต่อแอดมิน'),
         quickReplyText('พิกัดร้าน'),
       ],
     },
@@ -784,10 +784,11 @@ function buildReopenMenuMessage() {
     quickReply: {
       items: [
         quickReplyText('คุยกับพนักงาน/เช็กคิวเดิม'),
+        quickReplyText('ติดต่อแอดมิน'),
         quickReplyText('จองคิวเพิ่มเติม'),
         quickReplyText('เปลี่ยนวันนัด'),
         quickReplyText('สอบถามราคา'),
-        quickReplyText('ติดต่อแอดมิน'),
+        
       ],
     },
   };
