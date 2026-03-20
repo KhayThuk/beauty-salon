@@ -370,6 +370,32 @@ async function handlePostPriceAction(event, incomingText, userId) {
   const normalized = normalizeText(incomingText);
   const rememberedService = session.data?.priceService;
 
+  // --- ส่วนที่เพิ่ม/แก้ไข: ตรวจสอบว่าถ้าลูกค้าอยากเช็กราคาอื่นต่อ ให้ส่งราคาได้เลย ---
+  const selectedService = normalizePriceService(incomingText);
+  if (selectedService) {
+    // อัปเดตบริการล่าสุดที่ถามถึง
+    session.data.priceService = selectedService; 
+    
+    await replyMessages(replyToken, [
+      buildPriceResponseMessage(selectedService),
+      {
+        type: 'text',
+        text: `หากต้องการจองคิวบริการ ${selectedService} สามารถกด “จองคิวบริการนี้” ได้เลยค่ะ`,
+        quickReply: {
+          items: [
+            quickReplyText('จองคิวบริการนี้'),
+            quickReplyText('ติดต่อแอดมิน'),
+            quickReplyText('สอบถามราคา'),
+            quickReplyText('พิกัดร้าน'),
+            quickReplyText('เมนู'),
+          ],
+        },
+      },
+    ]);
+    return 'price_completed_continuous'; // จบการทำงานสำหรับข้อความนี้
+  }
+  // -----------------------------------------------------------------
+
   if (POST_PRICE_BOOKING_KEYWORDS.includes(incomingText) || POST_PRICE_BOOKING_KEYWORDS.includes(normalized)) {
     if (!rememberedService) {
       sessions.set(userId, {
@@ -424,7 +450,6 @@ async function handlePostPriceAction(event, incomingText, userId) {
   ]);
   return 'post_price_repeat_options';
 }
-
 async function handleImageMessage(event) {
   const userId = event.source?.userId;
 
