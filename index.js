@@ -169,40 +169,69 @@ async function handleTextMessage(event) {
   const incomingText = (event.message?.text || '').trim();
   const normalized = normalizeText(incomingText);
 
-  if (!userId) {
-    await replyText(replyToken, 'ขออภัยค่ะ ระบบไม่สามารถระบุผู้ใช้งานได้ในขณะนี้');
-    return null;
-  }
+  if (!userId) return null;
 
-  let isFirstMessage = false;
-
+  // สร้าง session เปล่าสำหรับ User ใหม่ (แต่จะไม่มีการทักทายอัตโนมัติ)
   if (!sessions.has(userId)) {
     sessions.set(userId, createDefaultSession());
-    isFirstMessage = true;
   }
 
   let session = sessions.get(userId);
   session.lastSeenAt = Date.now();
 
+  // กรณีสถานะ Closed (หลังจากแอดมินรับเรื่องไปแล้ว)
   if (session.mode === 'closed') {
     const passed = Date.now() - (session.closedAt || 0);
-
+    
+    // ถ้าเกิน 24 ชม. ให้รีเซ็ตกลับมาเป็น idle เพื่อรอ Keyword ครั้งหน้า (ไม่ส่ง Reopen Menu)
     if (passed >= CLOSED_WINDOW_MS) {
-      sessions.set(userId, {
-        mode: 'reopenMenu',
-        step: 'chooseAction',
-        data: {},
-        closedAt: null,
-        lastSeenAt: Date.now(),
-      });
-      await replyMessages(replyToken, [buildReopenMenuMessage()]);
-      return 'reopen_menu_after_24h';
+      session.mode = 'idle';
+      session.closedAt = null;
     }
 
+    // ถ้ายังไม่พ้นช่วงปิดรับ และไม่ใช่คีย์เวิร์ดเริ่มใหม่ ให้เงียบไว้
     if (!isStartTrigger(normalized, incomingText)) {
       return 'closed_ignore';
     }
   }
+
+  // 1. ตรวจสอบ Global Commands (เช่น จองคิว, สอบถามราคา, พิกัด)
+  // ถ้าพิมพ์ตรง Keyword ระบบจะส่ง Message ที่เกี่ยวข้องไปทันที
+  const globalAction = await handleGlobalCommands(event, userId, incomingText, normalized, false);
+  if (globalAction) {
+    return globalAction;
+  }
+
+  // 2. ถ้าลูกค้ากำลังอยู่ในกระบวนการ (Flow) ต่างๆ ให้จัดการต่อตามขั้นตอน
+  if (session.mode === 'booking') {
+    return handleBookingFlow(event, incomingText, userId);
+  }
+  if (session.mode === 'priceInquiry') {
+    return handlePriceInquiryFlow(event, incomingText, userId);
+  }
+  if (session.mode === 'reschedule') {
+    return handleRescheduleFlow(event, incomingText, userId);
+  }
+  if (session.mode === 'postPriceAction') {
+    return handlePostPriceAction(event, incomingText, userId);
+  }
+
+  // 3. ถ้าพิมพ์ชื่อบริการตรงๆ (เช่น 'ทำเล็บ', 'ตัดผมชาย') ในขณะที่ยังว่าง (Idle)
+  // ให้เริ่มกระบวนการจองของบริการนั้นทันที
+  if (SERVICES.includes(incomingText) && incomingText !== 'สอบถามราคา') {
+    sessions.set(userId, {
+      mode: 'booking',
+      step: 'service',
+      data: {},
+      closedAt: null,
+      lastSeenAt: Date.now(),
+    });
+    return handleBookingFlow(event, incomingText, userId);
+  }
+
+  // ถ้าไม่ตรงกับเงื่อนไขใดเลย หรือเป็นข้อความทั่วไป บอทจะเงียบไว้ (ไม่ตอบ Fallback Menu)
+  return 'no_match_ignore';
+}
 
   const globalAction = await handleGlobalCommands(event, userId, incomingText, normalized, isFirstMessage);
   if (globalAction) {
@@ -259,7 +288,6 @@ async function handleTextMessage(event) {
 
   await replyMessages(replyToken, [buildWelcomeMessage(), buildServiceQuestion()]);
   return 'idle_fallback_to_menu';
-}
 
 async function handleGlobalCommands(event, userId, incomingText, normalized, isFirstMessage) {
   const replyToken = event.replyToken;
